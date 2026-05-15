@@ -12,6 +12,11 @@ import type {
   // HRIS H2
   AttendanceRecord, AttendanceSummaryItem,
   LeaveType, LeaveTypeCreate, LeaveBalance, LeaveRequest, LeaveRequestCreate,
+  // HRIS H3
+  SalaryComponent, SalaryComponentCreate, SalaryAssignment, SalaryAssignmentCreate,
+  PayrollPeriod, PayrollRun,
+  // HRIS H4
+  JobPosting, JobPostingCreate, Applicant, ApplicantCreate, Interview, OnboardingTask,
 } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -357,4 +362,70 @@ export const hrisLeaveApi = {
 
   reject: (id: number, note?: string) =>
     api.post<LeaveRequest>(`/hris/leave-requests/${id}/reject`, { note }),
+};
+
+// ─── HRIS H3 — Payroll ────────────────────────────────────────────────────────
+
+export const hrisSalaryApi = {
+  listComponents: () => api.get<SalaryComponent[]>("/hris/salary-components"),
+  createComponent: (data: SalaryComponentCreate) =>
+    api.post<SalaryComponent>("/hris/salary-components", data),
+
+  listAssignments: (employee_id?: number) =>
+    api.get<SalaryAssignment[]>("/hris/salary-assignments", { params: { employee_id } }),
+  createAssignment: (data: SalaryAssignmentCreate) =>
+    api.post<SalaryAssignment>("/hris/salary-assignments", data),
+  deleteAssignment: (id: number) =>
+    api.delete(`/hris/salary-assignments/${id}`),
+};
+
+export const hrisPayrollApi = {
+  listPeriods: () => api.get<PayrollPeriod[]>("/hris/payroll/periods"),
+  createPeriod: (year: number, month: number) =>
+    api.post<PayrollPeriod>("/hris/payroll/periods", { year, month }),
+  lockPeriod: (id: number) =>
+    api.post<PayrollPeriod>(`/hris/payroll/periods/${id}/lock`),
+  calculate: (id: number, pph21_method?: string, include_thr?: boolean) =>
+    api.post<PayrollRun[]>(`/hris/payroll/periods/${id}/calculate`, null, {
+      params: { pph21_method, include_thr },
+    }),
+
+  listRuns: (params?: { period_id?: number; employee_id?: number }) =>
+    api.get<PayrollRun[]>("/hris/payroll/runs", { params }),
+  adjustRun: (id: number, data: Partial<{ gross_salary: number; thr_amount: number; pph21_method: string; cost_centre_id: number }>) =>
+    api.patch<PayrollRun>(`/hris/payroll/runs/${id}`, data),
+  getSlip: (id: number) =>
+    api.get<Record<string, unknown>>(`/hris/payroll/runs/${id}/slip`),
+};
+
+// ─── HRIS H4 — Recruitment ────────────────────────────────────────────────────
+
+export const hrisRecruitmentApi = {
+  listPostings: (params?: { status?: string; dept_id?: number }) =>
+    api.get<JobPosting[]>("/hris/job-postings", { params }),
+  createPosting: (data: JobPostingCreate) =>
+    api.post<JobPosting>("/hris/job-postings", data),
+  updatePosting: (id: number, data: Record<string, unknown>) =>
+    api.patch<JobPosting>(`/hris/job-postings/${id}`, data),
+
+  listApplicants: (params?: { posting_id?: number; stage?: string; search?: string }) =>
+    api.get<Applicant[]>("/hris/applicants", { params }),
+  createApplicant: (data: ApplicantCreate) =>
+    api.post<Applicant>("/hris/applicants", data),
+  moveStage: (id: number, stage: string) =>
+    api.patch<Applicant>(`/hris/applicants/${id}/stage`, null, { params: { stage } }),
+  hire: (id: number, data: { department_id?: number; grade_id?: number; join_date?: string; create_user?: boolean }) =>
+    api.post<Applicant>(`/hris/applicants/${id}/hire`, data),
+
+  createInterview: (data: { applicant_id: number; scheduled_at: string; interviewer_id?: number; notes?: string }) =>
+    api.post<Interview>("/hris/interviews", data),
+  updateInterview: (id: number, result: string, notes?: string) =>
+    api.patch<Interview>(`/hris/interviews/${id}`, null, { params: { result, notes } }),
+
+  getOnboarding: (applicant_id: number) =>
+    api.get<OnboardingTask[]>(`/hris/onboarding/${applicant_id}`),
+  completeTask: (id: number, is_completed?: boolean) =>
+    api.patch<OnboardingTask>(`/hris/onboarding/tasks/${id}`, null, {
+      params: { is_completed: is_completed ?? true },
+    }),
 };

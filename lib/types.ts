@@ -631,3 +631,146 @@ export interface LeaveRequestCreate {
   end_date: string;
   reason?: string;
 }
+
+// ─── HRIS Types — Phase H3: Payroll ──────────────────────────────────────────
+
+export type SalaryComponentType = "BASIC" | "ALLOWANCE" | "DEDUCTION" | "BPJS" | "TAX";
+export type PayrollStatus = "OPEN" | "LOCKED" | "POSTED";
+export type PPh21Method = "NETTO" | "GROSS_UP";
+
+export interface SalaryComponent {
+  id: number;
+  code: string;
+  name: string;
+  component_type: SalaryComponentType;
+  is_taxable: boolean;
+  is_active: boolean;
+}
+
+export interface SalaryComponentCreate {
+  code: string;
+  name: string;
+  component_type: SalaryComponentType;
+  is_taxable?: boolean;
+}
+
+export interface SalaryAssignment {
+  id: number;
+  employee_id: number;
+  component_id: number;
+  component: SalaryComponent;
+  amount: number;
+  effective_from: string;
+  effective_to: string | null;
+}
+
+export interface SalaryAssignmentCreate {
+  employee_id: number;
+  component_id: number;
+  amount: number;
+  effective_from: string;
+  effective_to?: string | null;
+}
+
+export interface PayrollPeriod {
+  id: number;
+  year: number;
+  month: number;
+  status: PayrollStatus;
+  locked_at: string | null;
+  locked_by: number | null;
+  created_at: string;
+}
+
+export interface PayrollRun {
+  id: number;
+  period_id: number;
+  employee_id: number;
+  employee?: Pick<Employee, "id" | "employee_no" | "full_name" | "department">;
+  gross_salary: number;
+  bpjs_tk_employee: number;
+  bpjs_tk_employer: number;
+  bpjs_kes_employee: number;
+  bpjs_kes_employer: number;
+  pph21_amount: number;
+  pph21_method: PPh21Method;
+  net_salary: number;
+  thr_amount: number | null;
+  components_snapshot: Record<string, number> | null;
+  cost_centre_id: number | null;
+  expense_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── HRIS Types — Phase H4: Recruitment ──────────────────────────────────────
+
+export type PostingStatus = "OPEN" | "CLOSED" | "ON_HOLD";
+export type ApplicantStage = "RECEIVED" | "SCREENING" | "INTERVIEW" | "OFFER" | "HIRED" | "REJECTED";
+export type ApplicantSource = "JOBSTREET" | "LINKEDIN" | "REFERRAL" | "WALK_IN" | "OTHER";
+export type InterviewResult = "PENDING" | "PASS" | "FAIL" | "HOLD";
+
+export interface JobPosting {
+  id: number;
+  title: string;
+  department_id: number | null;
+  grade_id: number | null;
+  description: string | null;
+  requirements: string | null;
+  status: PostingStatus;
+  opened_at: string | null;
+  closed_at: string | null;
+  created_by: number;
+  created_at: string;
+}
+
+export interface JobPostingCreate {
+  title: string;
+  department_id?: number | null;
+  grade_id?: number | null;
+  description?: string;
+  requirements?: string;
+}
+
+export interface Applicant {
+  id: number;
+  posting_id: number;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  source: ApplicantSource;
+  stage: ApplicantStage;
+  cv_url: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicantCreate {
+  posting_id: number;
+  full_name: string;
+  email?: string;
+  phone?: string;
+  source?: ApplicantSource;
+  note?: string;
+}
+
+export interface Interview {
+  id: number;
+  applicant_id: number;
+  scheduled_at: string;
+  interviewer_id: number | null;
+  result: InterviewResult;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface OnboardingTask {
+  id: number;
+  applicant_id: number;
+  task: string;
+  is_completed: boolean;
+  completed_at: string | null;
+  assigned_to: number | null;
+  sort_order: number;
+}

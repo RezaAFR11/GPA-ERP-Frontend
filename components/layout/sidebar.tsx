@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Inbox, FolderKanban, TrendingUp, CreditCard,
   Package, FileText, BarChart2, ShieldCheck, ChevronDown,
-  LogOut, Settings, HeartPulse, Users, Fingerprint, CalendarDays,
+  LogOut, Settings, HeartPulse, Users, Fingerprint, CalendarDays, Banknote, UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
@@ -34,10 +34,12 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const HRIS_ITEMS: NavItem[] = [
-  { href: "/hris",            menuKey: "hris_dashboard",   label: "HRIS Dashboard",    icon: HeartPulse },
-  { href: "/hris/employees",  menuKey: "hris_employees",   label: "Data Karyawan",     icon: Users },
-  { href: "/hris/attendance", menuKey: "hris_attendance",  label: "Absensi & Lembur",  icon: Fingerprint },
-  { href: "/hris/leave",      menuKey: "hris_leave",       label: "Cuti & Izin",       icon: CalendarDays },
+  { href: "/hris",              menuKey: "hris_dashboard",   label: "HRIS Dashboard",    icon: HeartPulse  },
+  { href: "/hris/employees",    menuKey: "hris_employees",   label: "Data Karyawan",     icon: Users       },
+  { href: "/hris/attendance",   menuKey: "hris_attendance",  label: "Absensi & Lembur",  icon: Fingerprint },
+  { href: "/hris/leave",        menuKey: "hris_leave",       label: "Cuti & Izin",       icon: CalendarDays},
+  { href: "/hris/payroll",      menuKey: "hris_payroll",     label: "Penggajian",        icon: Banknote    },
+  { href: "/hris/recruitment",  menuKey: "hris_recruitment", label: "Rekrutmen",         icon: UserPlus    },
 ];
 
 export function Sidebar() {
