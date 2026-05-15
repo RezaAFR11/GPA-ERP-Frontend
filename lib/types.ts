@@ -523,3 +523,111 @@ export interface JobGradeCreate {
   level: number;
   is_active?: boolean;
 }
+
+// ─── HRIS Types — Phase H2: Absensi & Cuti ──────────────────────────────────
+
+export type AttendanceSource = "manual" | "mobile" | "fingerprint" | "import";
+export type LeaveRequestStatus = "draft" | "submitted" | "approved" | "rejected";
+
+export interface AttendanceRecord {
+  id: number;
+  employee_id: number;
+  employee?: Pick<Employee, "id" | "employee_no" | "full_name">;
+  date: string;                     // YYYY-MM-DD
+  clock_in: string | null;          // ISO datetime
+  clock_out: string | null;
+  hours_regular: number | null;
+  hours_overtime_weekday: number | null;
+  hours_overtime_weekend: number | null;
+  hours_overtime_holiday: number | null;
+  source: AttendanceSource;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy: number | null;
+  selfie_url: string | null;
+  face_verified: boolean;
+  face_confidence: number | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSummaryItem {
+  employee_id: number;
+  employee_no: string;
+  full_name: string;
+  department: string | null;
+  days_present: number;
+  hours_regular: number;
+  hours_overtime_weekday: number;
+  hours_overtime_weekend: number;
+  hours_overtime_holiday: number;
+  total_hours: number;
+}
+
+export interface ClockInPayload {
+  employee_id: number;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  note?: string;
+  selfie?: File;
+}
+
+export interface LeaveType {
+  id: number;
+  code: string;
+  name: string;
+  max_days_per_year: number | null;
+  is_paid: boolean;
+  requires_approval: boolean;
+  is_active: boolean;
+}
+
+export interface LeaveTypeCreate {
+  code: string;
+  name: string;
+  max_days_per_year?: number | null;
+  is_paid?: boolean;
+  requires_approval?: boolean;
+}
+
+export interface LeaveBalance {
+  id: number;
+  employee_id: number;
+  leave_type_id: number;
+  leave_type: LeaveType;
+  year: number;
+  accrued: number;
+  used: number;
+  remaining: number;
+}
+
+export interface LeaveRequest {
+  id: number;
+  employee_id: number;
+  employee?: Pick<Employee, "id" | "employee_no" | "full_name">;
+  leave_type_id: number;
+  leave_type: LeaveType;
+  start_date: string;
+  end_date: string;
+  days: number;
+  reason: string | null;
+  status: LeaveRequestStatus;
+  approval_chain: string[] | null;
+  approval_step: number | null;
+  current_approver_role: string | null;
+  approval_history: Record<string, unknown>[] | null;
+  submitted_by: number | null;
+  approved_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeaveRequestCreate {
+  employee_id: number;
+  leave_type_id: number;
+  start_date: string;
+  end_date: string;
+  reason?: string;
+}

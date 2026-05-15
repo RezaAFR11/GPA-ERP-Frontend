@@ -6,9 +6,12 @@ import type {
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
   ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate,
-  // HRIS
+  // HRIS H1
   Department, DepartmentCreate, Employee, EmployeeCreate, EmployeeDocument,
   JobGrade, JobGradeCreate,
+  // HRIS H2
+  AttendanceRecord, AttendanceSummaryItem,
+  LeaveType, LeaveTypeCreate, LeaveBalance, LeaveRequest, LeaveRequestCreate,
 } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -286,4 +289,72 @@ export const hrisEmployeesApi = {
       { headers: { "Content-Type": "multipart/form-data" } }
     );
   },
+  registerFace: (id: number, photo: File) => {
+    const fd = new FormData();
+    fd.append("photo", photo);
+    return api.post<{ message: string }>(`/hris/employees/${id}/face`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
+
+// ─── HRIS H2 — Absensi & Cuti ─────────────────────────────────────────────────
+
+export const hrisAttendanceApi = {
+  list: (params?: {
+    employee_id?: number; date_from?: string; date_to?: string;
+    skip?: number; limit?: number;
+  }) => api.get<PaginatedResponse<AttendanceRecord>>("/hris/attendance", { params }),
+
+  summary: (params: { year: number; month: number; dept_id?: number }) =>
+    api.get<AttendanceSummaryItem[]>("/hris/attendance/summary", { params }),
+
+  manualCreate: (data: {
+    employee_id: number; date: string;
+    clock_in?: string; clock_out?: string;
+    is_weekend?: boolean; is_holiday?: boolean; note?: string;
+  }) => api.post<AttendanceRecord>("/hris/attendance", data),
+
+  clockIn: (payload: {
+    employee_id: number; latitude?: number; longitude?: number;
+    accuracy?: number; note?: string; selfie?: File;
+  }) => {
+    const fd = new FormData();
+    fd.append("employee_id", String(payload.employee_id));
+    if (payload.latitude  != null) fd.append("latitude",  String(payload.latitude));
+    if (payload.longitude != null) fd.append("longitude", String(payload.longitude));
+    if (payload.accuracy  != null) fd.append("accuracy",  String(payload.accuracy));
+    if (payload.note)              fd.append("note",      payload.note);
+    if (payload.selfie)            fd.append("selfie",    payload.selfie);
+    return api.post<AttendanceRecord>("/hris/attendance/clock-in", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+
+  clockOut: (params: {
+    employee_id: number; is_holiday?: boolean; is_weekend?: boolean; note?: string;
+  }) => api.post<AttendanceRecord>("/hris/attendance/clock-out", null, { params }),
+};
+
+export const hrisLeaveApi = {
+  listTypes: () => api.get<LeaveType[]>("/hris/leave-types"),
+  createType: (data: LeaveTypeCreate) => api.post<LeaveType>("/hris/leave-types", data),
+
+  getBalances: (employeeId: number) =>
+    api.get<LeaveBalance[]>(`/hris/leave-balance/${employeeId}`),
+
+  seedBalances: () => api.post<{ seeded: number }>("/hris/leave-balance/seed"),
+
+  listRequests: (params?: {
+    employee_id?: number; status?: string; skip?: number; limit?: number;
+  }) => api.get<PaginatedResponse<LeaveRequest>>("/hris/leave-requests", { params }),
+
+  create: (data: LeaveRequestCreate) =>
+    api.post<LeaveRequest>("/hris/leave-requests", data),
+
+  approve: (id: number, note?: string) =>
+    api.post<LeaveRequest>(`/hris/leave-requests/${id}/approve`, { note }),
+
+  reject: (id: number, note?: string) =>
+    api.post<LeaveRequest>(`/hris/leave-requests/${id}/reject`, { note }),
 };
