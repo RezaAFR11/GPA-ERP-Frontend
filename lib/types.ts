@@ -422,3 +422,104 @@ export interface MarginDataPoint {
   spent: number;
   revenue: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HRIS Types — Phase H1: Data Karyawan & Organisasi
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type EmploymentType = "Tetap" | "PKWT" | "Outsource";
+export type EmployeeStatus = "active" | "probation" | "leave" | "terminated";
+export type EmpDocType = "KTP" | "NPWP" | "BPJS_TK" | "BPJS_KES" | "IJAZAH" | "SKCK" | "OTHER";
+
+export interface Department {
+  id: number;
+  code: string;
+  name: string;
+  parent_id: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobGrade {
+  id: number;
+  code: string;
+  name: string;
+  level: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeeDocument {
+  id: number;
+  employee_id: number;
+  doc_type: EmpDocType;
+  file_url: string;
+  uploaded_at: string;
+  created_at: string;
+}
+
+export interface Employee {
+  id: number;
+  employee_no: string;
+  full_name: string;
+  nik: string | null;
+  npwp: string | null;
+  email: string | null;
+  phone: string | null;
+  tipe: EmploymentType;
+  status: EmployeeStatus;
+  dept_id: number | null;
+  grade_id: number | null;
+  site: string | null;
+  join_date: string | null;
+  end_date: string | null;
+  bank_name: string | null;
+  bank_account: string | null;
+  bpjs_tk_no: string | null;
+  bpjs_kes_no: string | null;
+  user_id: number | null;
+  photo_url: string | null;
+  department: Department | null;
+  grade: JobGrade | null;
+  user: { id: number; full_name: string } | null;
+  documents: EmployeeDocument[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeeCreate {
+  employee_no: string;
+  full_name: string;
+  nik?: string | null;
+  npwp?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  tipe: EmploymentType;
+  status?: EmployeeStatus;
+  dept_id?: number | null;
+  grade_id?: number | null;
+  site?: string | null;
+  join_date?: string | null;
+  end_date?: string | null;
+  bank_name?: string | null;
+  bank_account?: string | null;
+  bpjs_tk_no?: string | null;
+  bpjs_kes_no?: string | null;
+  user_id?: number | null;
+}
+
+export interface DepartmentCreate {
+  code: string;
+  name: string;
+  parent_id?: number | null;
+  is_active?: boolean;
+}
+
+export interface JobGradeCreate {
+  code: string;
+  name: string;
+  level: number;
+  is_active?: boolean;
+}

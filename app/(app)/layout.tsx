@@ -143,5 +143,12 @@ function menuKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/reports")) return "reports";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/vault")) return "vault";
+  // HRIS routes — more specific paths first
+  if (pathname.startsWith("/hris/employees"))  return "hris_employees";
+  if (pathname.startsWith("/hris/attendance")) return "hris_attendance";
+  if (pathname.startsWith("/hris/leave"))      return "hris_leave";
+  if (pathname.startsWith("/hris/payroll"))    return "hris_payroll";
+  if (pathname.startsWith("/hris/recruitment"))return "hris_recruitment";
+  if (pathname.startsWith("/hris"))            return "hris_dashboard";
   return null;
 }

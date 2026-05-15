@@ -6,6 +6,9 @@ import type {
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
   ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate,
+  // HRIS
+  Department, DepartmentCreate, Employee, EmployeeCreate, EmployeeDocument,
+  JobGrade, JobGradeCreate,
 } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -233,4 +236,54 @@ export const notificationsApi = {
   unreadCount: () => api.get<{ count: number }>("/notifications/unread-count"),
   markRead:    (id: number) => api.post<MessageResponse>(`/notifications/${id}/read`),
   markAllRead: () => api.post<MessageResponse>("/notifications/read-all"),
+};
+
+// ─── HRIS — Departments ────────────────────────────────────────────────────────
+
+export const hrisDepartmentsApi = {
+  list:   (activeOnly = true) =>
+    api.get<Department[]>("/hris/departments", { params: { active_only: activeOnly } }),
+  create: (data: DepartmentCreate) => api.post<Department>("/hris/departments", data),
+  update: (id: number, data: Partial<DepartmentCreate>) =>
+    api.patch<Department>(`/hris/departments/${id}`, data),
+};
+
+// ─── HRIS — Job Grades ─────────────────────────────────────────────────────────
+
+export const hrisJobGradesApi = {
+  list:   (activeOnly = true) =>
+    api.get<JobGrade[]>("/hris/job-grades", { params: { active_only: activeOnly } }),
+  create: (data: JobGradeCreate) => api.post<JobGrade>("/hris/job-grades", data),
+  update: (id: number, data: Partial<JobGradeCreate>) =>
+    api.patch<JobGrade>(`/hris/job-grades/${id}`, data),
+};
+
+// ─── HRIS — Employees ─────────────────────────────────────────────────────────
+
+export const hrisEmployeesApi = {
+  list: (params?: {
+    search?: string; dept_id?: number; tipe?: string; status?: string;
+    skip?: number; limit?: number;
+  }) => api.get<PaginatedResponse<Employee>>("/hris/employees", { params }),
+  get:    (id: number) => api.get<Employee>(`/hris/employees/${id}`),
+  create: (data: EmployeeCreate) => api.post<Employee>("/hris/employees", data),
+  update: (id: number, data: Partial<EmployeeCreate>) =>
+    api.patch<Employee>(`/hris/employees/${id}`, data),
+  uploadPhoto: (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<{ url: string }>(`/hris/employees/${id}/photo`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  uploadDocument: (id: number, docType: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("doc_type", docType);
+    return api.post<EmployeeDocument>(
+      `/hris/employees/${id}/documents?doc_type=${encodeURIComponent(docType)}`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+  },
 };

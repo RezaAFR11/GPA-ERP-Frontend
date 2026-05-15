@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Inbox, FolderKanban, TrendingUp, CreditCard,
   Package, FileText, BarChart2, ShieldCheck, ChevronDown,
-  LogOut, Settings,
+  LogOut, Settings, HeartPulse, Users, Fingerprint, CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
@@ -33,6 +33,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/vault",          menuKey: "vault",           label: "Vault",                   icon: ShieldCheck,    adminOnly: true },
 ];
 
+const HRIS_ITEMS: NavItem[] = [
+  { href: "/hris",            menuKey: "hris_dashboard",   label: "HRIS Dashboard",    icon: HeartPulse },
+  { href: "/hris/employees",  menuKey: "hris_employees",   label: "Data Karyawan",     icon: Users },
+  { href: "/hris/attendance", menuKey: "hris_attendance",  label: "Absensi & Lembur",  icon: Fingerprint },
+  { href: "/hris/leave",      menuKey: "hris_leave",       label: "Cuti & Izin",       icon: CalendarDays },
+];
+
 export function Sidebar() {
   const pathname    = usePathname();
   const { user, logout, canAccessMenu } = useAuth();
@@ -49,6 +56,7 @@ export function Sidebar() {
     if (item.adminOnly && !isSuperAdmin) return false;
     return canAccessMenu(item.menuKey);
   });
+  const visibleHrisItems = HRIS_ITEMS.filter((item) => canAccessMenu(item.menuKey));
   const showSettings = canAccessMenu("settings");
 
   return (
@@ -109,6 +117,42 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {/* ── HRIS Section ─────────────────────────────────────────────────── */}
+        {visibleHrisItems.length > 0 && (
+          <>
+            <div className="pt-3 pb-1 px-2">
+              <p className="text-[9px] font-semibold tracking-[0.15em] uppercase text-sidebar-heading">
+                HRIS
+              </p>
+            </div>
+            {visibleHrisItems.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon   = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 group",
+                    active
+                      ? "nav-active text-white"
+                      : "text-sidebar-text hover:bg-sidebar-hover hover:text-white"
+                  )}
+                >
+                  <Icon
+                    size={15}
+                    className={cn(
+                      "shrink-0 transition-colors",
+                      active ? "text-[#5eead4]" : "text-sidebar-text group-hover:text-gray-200"
+                    )}
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
 
         <div className="pt-3 pb-1 px-2">
           <p className="text-[9px] font-semibold tracking-[0.15em] uppercase text-sidebar-heading">
