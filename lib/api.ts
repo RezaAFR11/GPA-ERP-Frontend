@@ -349,6 +349,8 @@ export const hrisEmployeesApi = {
   },
   bulkCreateAccounts: (items: { employee_id: number; role_name: string }[]) =>
     api.post<BulkAccountResponse>("/hris/employees/bulk-create-accounts", items),
+  createFromUser: (userId: number) =>
+    api.post<Employee>(`/hris/employees/from-user/${userId}`),
 };
 
 // ─── HRIS H2 — Absensi & Cuti ─────────────────────────────────────────────────

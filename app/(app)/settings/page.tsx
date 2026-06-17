@@ -4,10 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   User, Lock, Users, Shield, Eye, EyeOff,
   Plus, CheckCircle2, XCircle, SlidersHorizontal,
-  ChevronRight, Trash2, X, Check, Pencil, Mail, KeyRound, Copy,
+  ChevronRight, Trash2, X, Check, Pencil, Mail, KeyRound, Copy, IdCard,
 } from "lucide-react";
 import { useAuth, useRole } from "@/lib/auth-context";
-import { usersApi, vaultApi, costCodesApi, costCentresApi, legalApi } from "@/lib/api";
+import { usersApi, vaultApi, costCodesApi, costCentresApi, legalApi, hrisEmployeesApi } from "@/lib/api";
 import { getBranding, setBranding, type Branding } from "@/lib/branding";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -498,6 +498,16 @@ function UsersTab() {
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
+  const createEmployee = useMutation({
+    mutationFn: (id: number) => hrisEmployeesApi.createFromUser(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["hris", "employees"] });
+      showToast("Data pegawai dibuat & ditautkan", true);
+    },
+    onError: (e) => showToast(getErrorMessage(e), false),
+  });
+
   const createUser = useMutation({
     mutationFn: () => usersApi.create(newUser),
     onSuccess: () => {
@@ -706,6 +716,20 @@ function UsersTab() {
                           <KeyRound size={11} />
                           Reset PW
                         </button>
+                        {!u.employee_id && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Create a linked employee (pegawai) record for ${u.full_name}? You can complete the details in Data Karyawan.`))
+                                createEmployee.mutate(u.id);
+                            }}
+                            disabled={createEmployee.isPending}
+                            className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-teal-600 font-medium transition-colors disabled:opacity-50"
+                            title="Create linked employee record"
+                          >
+                            <IdCard size={11} />
+                            Buat Pegawai
+                          </button>
+                        )}
                         {u.is_active && (
                           <button
                             onClick={() => {

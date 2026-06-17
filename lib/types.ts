@@ -16,6 +16,7 @@ export interface User {
   role: Role;
   created_at: string;
   must_change_password?: boolean;
+  employee_id?: number | null;
 }
 
 export interface TokenResponse {
