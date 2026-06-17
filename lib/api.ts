@@ -5,7 +5,7 @@ import type {
   InventoryItem, InventoryItemCreate, InventoryTxn, InventoryTxnCreate,
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
-  ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate,
+  ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserSummary,
   // HRIS H1
   BulkAccountResponse,
   Department, DepartmentCreate, Employee, EmployeeCreate, EmployeeDocument,
@@ -351,6 +351,10 @@ export const hrisEmployeesApi = {
     api.post<BulkAccountResponse>("/hris/employees/bulk-create-accounts", items),
   createFromUser: (userId: number) =>
     api.post<Employee>(`/hris/employees/from-user/${userId}`),
+  linkableUsers: () =>
+    api.get<UserSummary[]>("/hris/employees/linkable-users"),
+  linkUser: (empId: number, userId: number) =>
+    api.post<Employee>(`/hris/employees/${empId}/link-user/${userId}`),
 };
 
 // ─── HRIS H2 — Absensi & Cuti ─────────────────────────────────────────────────

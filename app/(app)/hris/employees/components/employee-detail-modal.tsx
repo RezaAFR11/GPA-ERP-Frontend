@@ -115,6 +115,7 @@ const ROLES = ["WORKER", "STAFF", "GA", "HR", "FINANCE", "COST_CONTROL", "PM", "
 function AccountSection({ employee, onCreated }: { employee: Employee; onCreated: () => void }) {
   const [role, setRole] = useState("WORKER");
   const [tempPass, setTempPass] = useState<string | null>(null);
+  const [linkUserId, setLinkUserId] = useState("");
 
   const mut = useMutation({
     mutationFn: () =>
@@ -130,6 +131,20 @@ function AccountSection({ employee, onCreated }: { employee: Employee; onCreated
       }
     },
     onError: () => toastError("Gagal membuat akun"),
+  });
+
+  // Active users not yet linked to any employee — for the "link existing" option.
+  const { data: linkable = [] } = useQuery({
+    queryKey: ["hris", "linkable-users"],
+    queryFn: () => hrisEmployeesApi.linkableUsers().then((r) => r.data),
+    enabled: !employee.user_id,
+  });
+
+  const linkMut = useMutation({
+    mutationFn: () => hrisEmployeesApi.linkUser(employee.id, Number(linkUserId)),
+    onSuccess: () => { toastSuccess("Akun berhasil ditautkan"); onCreated(); },
+    onError: (e: unknown) =>
+      toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal menautkan"),
   });
 
   if (employee.user_id) {
@@ -154,23 +169,48 @@ function AccountSection({ employee, onCreated }: { employee: Employee; onCreated
             <p className="font-mono text-sm text-teal-900 select-all break-all">{tempPass}</p>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            {employee.email ? (
-              <>
-                <select
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  value={role}
-                  onChange={e => setRole(e.target.value)}
-                >
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-                <Button size="sm" onClick={() => mut.mutate()} disabled={mut.isPending}>
-                  {mut.isPending ? "..." : "Buat Akun"}
-                </Button>
-              </>
-            ) : (
-              <span className="text-xs text-amber-600">Isi email karyawan dulu</span>
+          <div className="space-y-3">
+            {/* Option 1: link an existing user account */}
+            {linkable.length > 0 && (
+              <div>
+                <p className="text-[11px] text-gray-400 mb-1">Tautkan akun yang sudah ada</p>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={linkUserId}
+                    onChange={e => setLinkUserId(e.target.value)}
+                  >
+                    <option value="">Pilih akun…</option>
+                    {linkable.map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name} · {u.email}</option>
+                    ))}
+                  </select>
+                  <Button size="sm" onClick={() => linkMut.mutate()} disabled={!linkUserId || linkMut.isPending}>
+                    {linkMut.isPending ? "..." : "Tautkan"}
+                  </Button>
+                </div>
+              </div>
             )}
+            {/* Option 2: create a brand-new account for this employee */}
+            <div>
+              <p className="text-[11px] text-gray-400 mb-1">Buat akun baru</p>
+              {employee.email ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    value={role}
+                    onChange={e => setRole(e.target.value)}
+                  >
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <Button size="sm" onClick={() => mut.mutate()} disabled={mut.isPending}>
+                    {mut.isPending ? "..." : "Buat Akun"}
+                  </Button>
+                </div>
+              ) : (
+                <span className="text-xs text-amber-600">Isi email karyawan dulu</span>
+              )}
+            </div>
           </div>
         )}
       </div>
