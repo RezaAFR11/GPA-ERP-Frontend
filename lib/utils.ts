@@ -142,14 +142,16 @@ export function burnTailwind(pctUsed: number): string {
 // ─── Role labels ──────────────────────────────────────────────────────────────
 
 export const ROLE_LABEL: Record<string, string> = {
-  SUPER_ADMIN:  "Super Admin",
-  MD:           "Managing Director",
-  PM:           "Project Manager",
-  COST_CONTROL: "Cost Control",
-  FINANCE:      "Finance",
-  GA:           "General Admin",
-  STAFF:        "Staff",
-  WORKER:       "Worker (Self-Service)",
+  SUPER_ADMIN:     "Super Admin",
+  MD:              "Managing Director",
+  PM:              "Project Manager",
+  PROJECT_CONTROL: "Project Control",
+  COST_CONTROL:    "Cost Control",
+  FINANCE:         "Finance",
+  GA:              "General Admin",
+  HR:              "HR",
+  STAFF:           "Staff",
+  WORKER:          "Worker (Self-Service)",
 };
 
 // ─── Axios error message ──────────────────────────────────────────────────────

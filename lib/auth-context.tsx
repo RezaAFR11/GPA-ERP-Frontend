@@ -130,17 +130,17 @@ export function useRole() {
 
   const isSuperAdmin = hasRole("SUPER_ADMIN");
   const isMD         = hasRole("MD", "SUPER_ADMIN");
-  const isPM         = hasRole("PM", "MD", "SUPER_ADMIN");
+  const isPM         = hasRole("PM", "PROJECT_CONTROL", "MD", "SUPER_ADMIN");
   const isCostControl= hasRole("COST_CONTROL", "SUPER_ADMIN");
   const isFinance    = hasRole("FINANCE", "SUPER_ADMIN");
-  const isHR         = hasRole("GA", "SUPER_ADMIN");
+  const isHR         = hasRole("GA", "HR", "SUPER_ADMIN");
   // Worker = site/field worker with HRIS self-service only
   const isWorker     = hasRole("WORKER");
   // Self-service: worker OR staff (office) — can see /hris/me portal
   const isSelfService = hasRole("WORKER", "STAFF");
 
-  // Can sign legal documents (MD, PM, or Super Admin)
-  const canSign = hasRole("MD", "PM", "SUPER_ADMIN");
+  // Can sign legal documents (MD, PM/Project Control, or Super Admin)
+  const canSign = hasRole("MD", "PM", "PROJECT_CONTROL", "SUPER_ADMIN");
 
   return {
     role, hasRole,

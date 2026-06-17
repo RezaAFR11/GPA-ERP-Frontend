@@ -110,7 +110,7 @@ function empToForm(d: Employee): EditForm {
   };
 }
 
-const ROLES = ["WORKER", "STAFF", "GA", "FINANCE", "COST_CONTROL", "PM", "MD", "HR"] as const;
+const ROLES = ["WORKER", "STAFF", "GA", "HR", "FINANCE", "COST_CONTROL", "PM", "PROJECT_CONTROL", "MD"] as const;
 
 function AccountSection({ employee, onCreated }: { employee: Employee; onCreated: () => void }) {
   const [role, setRole] = useState("WORKER");

@@ -44,7 +44,7 @@ const STATUS_OPTIONS: EmployeeStatus[] = ["active", "probation", "leave", "termi
 
 /** Roles available for bulk assignment (exclude super admin) */
 const ASSIGNABLE_ROLES: RoleName[] = [
-  "MD", "PM", "COST_CONTROL", "FINANCE", "GA", "STAFF", "WORKER",
+  "MD", "PM", "PROJECT_CONTROL", "COST_CONTROL", "FINANCE", "GA", "HR", "STAFF", "WORKER",
 ];
 
 // ── New Employee Form ──────────────────────────────────────────────────────────

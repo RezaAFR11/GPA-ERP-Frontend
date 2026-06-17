@@ -112,7 +112,7 @@ function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onVie
 
 export default function ActionCenterPage() {
   const qc             = useQueryClient();
-  const { isCostControl, isFinance, isMD, isSuperAdmin, isHR } = useRole();
+  const { isCostControl, isFinance, isMD, isSuperAdmin, isHR, isPM } = useRole();
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
   const { data: expenses = [], isLoading, refetch } = useQuery({
@@ -134,7 +134,7 @@ export default function ActionCenterPage() {
   );
   const toApprove = expenses.filter((e) =>
     ["submitted","verified"].includes(e.status) &&
-    (isMD || (e.current_approver_role === "PM") || (e.current_approver_role === "FINANCE" && isFinance))
+    (isMD || (e.current_approver_role === "PM" && isPM) || (e.current_approver_role === "FINANCE" && isFinance))
   );
   const toPay     = expenses.filter((e) => e.status === "approved" && isFinance);
   const toSubmit  = expenses.filter((e) => e.status === "draft");

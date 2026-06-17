@@ -3,8 +3,8 @@
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export type RoleName =
-  | "SUPER_ADMIN" | "MD" | "PM"
-  | "COST_CONTROL" | "FINANCE" | "GA" | "STAFF" | "WORKER";
+  | "SUPER_ADMIN" | "MD" | "PM" | "PROJECT_CONTROL"
+  | "COST_CONTROL" | "FINANCE" | "GA" | "HR" | "STAFF" | "WORKER";
 
 export interface Role { id: number; name: RoleName; }
 
