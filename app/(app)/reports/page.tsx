@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { toastError } from "@/lib/hooks/use-toast";
+import { useRole } from "@/lib/auth-context";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
@@ -55,6 +56,10 @@ async function downloadBlob(promise: Promise<{ data: Blob }>, filename: string) 
 // ── Download tab ───────────────────────────────────────────────────────────────
 
 function DownloadTab() {
+  const { isFinance, isMD, isCostControl } = useRole();
+  const canPayroll  = isFinance || isMD;                 // payroll-summary: FINANCE/MD/SUPER_ADMIN
+  const canProjFin  = isMD || isCostControl || isFinance; // project-financial: MD/COST_CONTROL/FINANCE/SUPER_ADMIN
+
   const thisYear  = new Date().getFullYear();
   const thisMonth = new Date().getMonth() + 1;
 
@@ -269,6 +274,7 @@ function DownloadTab() {
       </Card>
 
       {/* 3. Rekap Payroll */}
+      {canPayroll && (
       <Card padding={false}>
         <div className="px-5 py-4 border-b border-gray-50">
           <div className="flex items-center gap-2 mb-0.5">
@@ -299,8 +305,10 @@ function DownloadTab() {
           </Button>
         </div>
       </Card>
+      )}
 
       {/* 4. Keuangan Proyek */}
+      {canProjFin && (
       <Card padding={false}>
         <div className="px-5 py-4 border-b border-gray-50">
           <div className="flex items-center gap-2 mb-0.5">
@@ -335,6 +343,7 @@ function DownloadTab() {
           </Button>
         </div>
       </Card>
+      )}
 
       {/* 5. Rekap Petty Cash */}
       <Card padding={false}>
