@@ -6,6 +6,7 @@ import type {
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
   ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserSummary,
+  ReceivablesSummary,
   // HRIS H1
   BulkAccountResponse,
   Department, DepartmentCreate, Employee, EmployeeCreate, EmployeeDocument,
@@ -135,6 +136,8 @@ export const costCentresApi = {
 export const receivablesApi = {
   list:    (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string; skip?: number; limit?: number }) =>
     api.get<PaginatedResponse<AccountReceivable>>("/receivables", { params }),
+  summary: (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string }) =>
+    api.get<ReceivablesSummary>("/receivables/summary", { params }),
   create:  (data: unknown)  => api.post<AccountReceivable>("/receivables", data),
   update:  (id: number, data: unknown) => api.patch<AccountReceivable>(`/receivables/${id}`, data),
   confirm: (id: number)     => api.post<AccountReceivable>(`/receivables/${id}/confirm`),

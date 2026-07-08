@@ -93,7 +93,7 @@ function DownloadTab() {
   async function handleExpenses() {
     setExpLoading(true);
     try {
-      const token = localStorage.getItem("gpa_token");
+      const token = localStorage.getItem("gpa_access_token");
       const params = new URLSearchParams();
       if (expDateFrom) params.append("date_from", expDateFrom);
       if (expDateTo)   params.append("date_to",   expDateTo);
@@ -119,7 +119,7 @@ function DownloadTab() {
   async function handleAttendance() {
     setAttLoading(true);
     try {
-      const token = localStorage.getItem("gpa_token");
+      const token = localStorage.getItem("gpa_access_token");
       const params = new URLSearchParams();
       if (attYear)  params.append("year",        attYear);
       if (attMonth) params.append("month",       attMonth);
@@ -422,7 +422,7 @@ export default function ReportsPage() {
   async function exportExcel() {
     setExcelLoading(true);
     try {
-      const token = localStorage.getItem("gpa_token");
+      const token = localStorage.getItem("gpa_access_token");
       const res = await fetch(`${BASE_URL}/expenses/export`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();

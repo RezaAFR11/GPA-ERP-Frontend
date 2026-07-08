@@ -126,6 +126,14 @@ export interface AccountReceivable {
 
 // ─── Expense ──────────────────────────────────────────────────────────────────
 
+export interface ReceivablesSummary {
+  total_invoiced: number;
+  total_paid: number;
+  total_outstanding: number;
+  collection_rate: number;
+  count: number;
+}
+
 export type ExpenseStatus =
   | "draft" | "submitted" | "verified"
   | "approved" | "paid" | "hard_locked" | "rejected";

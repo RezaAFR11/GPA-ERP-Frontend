@@ -73,11 +73,15 @@ export default function RevenuePage() {
   const [paidDisp, setPaidD] = useState("");
   const [editAmounts, setEditAmounts] = useState({ amount: "", paid: "", remaining: "" });
 
+  const receivableFilters = useMemo(() => ({
+    ...(paymentFilter !== "all" ? { payment_state: paymentFilter } : {}),
+    ...(search ? { search } : {}),
+  }), [paymentFilter, search]);
+
   const { data: revenueData, isLoading } = useQuery({
     queryKey: ["receivables", "cash-collection", paymentFilter, search, page],
     queryFn: () => receivablesApi.list({
-      ...(paymentFilter !== "all" ? { payment_state: paymentFilter } : {}),
-      ...(search ? { search } : {}),
+      ...receivableFilters,
       skip:  (page - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,
     }).then((r) => r.data),
@@ -86,6 +90,11 @@ export default function RevenuePage() {
   const totalPages = Math.ceil((revenueData?.total ?? 0) / PAGE_SIZE);
   const rows = ars;
 
+  const { data: summary } = useQuery({
+    queryKey: ["receivables", "summary", paymentFilter, search],
+    queryFn: () => receivablesApi.summary(receivableFilters).then((r) => r.data),
+  });
+
   const { data: projects = [] } = useQuery({
     queryKey: ["projects", "active-for-revenue"],
     queryFn: () => projectsApi.list({ limit: 200 }).then((r) => r.data.items),
@@ -93,10 +102,10 @@ export default function RevenuePage() {
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
-  const totalInvoiced = ars.reduce((s, a) => s + a.amount, 0);
-  const totalPaid = ars.reduce((s, a) => s + paidAmount(a), 0);
-  const totalOutstanding = ars.reduce((s, a) => s + remainingAmount(a), 0);
-  const collectionRate = totalInvoiced > 0 ? (totalPaid / totalInvoiced) * 100 : 0;
+  const totalInvoiced = Number(summary?.total_invoiced ?? 0);
+  const totalPaid = Number(summary?.total_paid ?? 0);
+  const totalOutstanding = Number(summary?.total_outstanding ?? 0);
+  const collectionRate = Number(summary?.collection_rate ?? 0);
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } =
     useForm<FormData>({
