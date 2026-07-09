@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search } from "lucide-react";
+import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search, Trash2, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -69,6 +69,7 @@ export default function RevenuePage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<AccountReceivable | null>(null);
+  const [deleting, setDeleting] = useState<AccountReceivable | null>(null);
   const [amtDisp, setAmtD] = useState("");
   const [paidDisp, setPaidD] = useState("");
   const [editAmounts, setEditAmounts] = useState({ amount: "", paid: "", remaining: "" });
@@ -151,6 +152,17 @@ export default function RevenuePage() {
     onError: (e) => toastError("Update failed", getErrorMessage(e)),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => receivablesApi.delete(id),
+    onSuccess: () => {
+      toastSuccess("Invoice deleted", "The invoice has been removed");
+      qc.invalidateQueries({ queryKey: ["receivables"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      setDeleting(null);
+    },
+    onError: (e) => toastError("Delete failed", getErrorMessage(e)),
+  });
+
   const confirmMut = useMutation({
     mutationFn: (id: number) => receivablesApi.confirm(id),
     onSuccess: () => {
@@ -201,6 +213,15 @@ export default function RevenuePage() {
       paid: paidAmount(ar).toLocaleString("en-US", { maximumFractionDigits: 0 }),
       remaining: remainingAmount(ar).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     });
+  }
+
+  function deleteInvoice(ar: AccountReceivable) {
+    if (ar.status === "confirmed") {
+      toastError("Cannot delete", "Confirmed invoices cannot be deleted");
+      return;
+    }
+
+    setDeleting(ar);
   }
 
   function editMoneyInput(field: "amount" | "actual_payment" | "remaining") {
@@ -292,8 +313,8 @@ export default function RevenuePage() {
                   <th className="th w-[125px] text-right border-l border-gray-100">Paid</th>
                   <th className="th w-[135px] text-right border-l border-gray-100">Outstanding</th>
                   <th className="th w-[95px]">Due</th>
-                  <th className="th w-[90px]">State</th>
-                  <th className="th w-[95px]">Update</th>
+                  <th className="th w-[110px]">State</th>
+                  <th className="th w-[150px]">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -325,9 +346,20 @@ export default function RevenuePage() {
                         )}
                       </td>
                       <td className="td">
-                        <Button variant="secondary" size="xs" icon={<Pencil size={11} />} onClick={() => openEdit(ar)}>
-                          Edit
-                        </Button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Button variant="secondary" size="xs" icon={<Pencil size={11} />} onClick={() => openEdit(ar)}>
+                            Edit
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="xs"
+                            icon={<Trash2 size={11} />}
+                            onClick={() => deleteInvoice(ar)}
+                            disabled={deleteMut.isPending}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -461,6 +493,61 @@ export default function RevenuePage() {
           <Textarea label="Description" placeholder="Work package, milestone, or invoice notes" error={errors.description?.message} {...register("description")} />
         </form>
       </Modal>
+
+      {deleting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-[rgba(15,23,42,0.42)] modal-backdrop animate-fade-in"
+            onClick={() => {
+              if (!deleteMut.isPending) setDeleting(null);
+            }}
+          />
+
+          <div className="relative w-full max-w-[300px] bg-white rounded-xl shadow-modal animate-slide-up overflow-hidden">
+            <div className="relative px-[22px] pt-5 pb-4 border-b border-[#E7E5DF]">
+              <div className="w-full text-center">
+                <h2 className="text-[16px] font-bold text-[#0C2138]">
+                  Delete Invoice
+                </h2>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (!deleteMut.isPending) setDeleting(null);
+                }}
+                className="absolute right-[22px] top-5 p-1.5 rounded-lg hover:bg-[#F8FAF9] text-[#94A3B8] hover:text-[#0C2138] transition-colors"
+                disabled={deleteMut.isPending}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="px-[22px] py-7 text-center">
+              <p className="text-[13px] text-[#33445A]">
+                Delete invoice {invoiceLabel(deleting)}?
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 px-[22px] py-5 border-t border-[#E7E5DF] bg-[#F8FAF9]">
+              <Button
+                variant="secondary"
+                onClick={() => setDeleting(null)}
+                disabled={deleteMut.isPending}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                variant="danger"
+                loading={deleteMut.isPending}
+                onClick={() => deleteMut.mutate(deleting.id)}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
