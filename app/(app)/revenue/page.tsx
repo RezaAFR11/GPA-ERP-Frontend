@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search, Trash2, X } from "lucide-react";
+import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search, Trash2, X, MoreHorizontal } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -59,6 +59,84 @@ function invoiceLabel(ar: AccountReceivable) {
 function descriptionSummary(ar: AccountReceivable) {
   const match = ar.description.match(/Description:\s*([^\n]+)/i);
   return (match?.[1] || ar.description).replace(/\n/g, " ").trim();
+}
+
+function RevenueActionMenu({
+  ar,
+  canConfirm,
+  isConfirming,
+  isDeleting,
+  onEdit,
+  onConfirm,
+  onDelete,
+}: {
+  ar: AccountReceivable;
+  canConfirm: boolean;
+  isConfirming: boolean;
+  isDeleting: boolean;
+  onEdit: (ar: AccountReceivable) => void;
+  onConfirm: (ar: AccountReceivable) => void;
+  onDelete: (ar: AccountReceivable) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isConfirmed = ar.status === "confirmed";
+  const confirmDisabled = isConfirmed || !canConfirm || isConfirming;
+  const deleteDisabled = isConfirmed || isDeleting;
+
+  return (
+    <div className="relative flex justify-center">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        title="Invoice actions"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-7 z-20 bg-white border border-gray-100 rounded-xl shadow-modal w-44 py-1 overflow-hidden text-left">
+            <button
+              type="button"
+              onClick={() => { onEdit(ar); setOpen(false); }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Pencil size={12} className="text-primary" /> Edit
+            </button>
+            {!isConfirmed && (
+              <button
+                type="button"
+                disabled={confirmDisabled}
+                title={!canConfirm ? "Only MD or Super Admin can confirm revenue" : undefined}
+                onClick={() => {
+                  if (confirmDisabled) return;
+                  onConfirm(ar);
+                  setOpen(false);
+                }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle size={12} className="text-green-600" /> Confirm
+              </button>
+            )}
+            <div className="my-1 border-t border-gray-100" />
+            <button
+              type="button"
+              disabled={deleteDisabled}
+              onClick={() => {
+                if (deleteDisabled) return;
+                onDelete(ar);
+                setOpen(false);
+              }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Trash2 size={12} className="text-red-500" /> Delete
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function RevenuePage() {
@@ -314,7 +392,7 @@ export default function RevenuePage() {
                   <th className="th w-[135px] text-right border-l border-gray-100">Outstanding</th>
                   <th className="th w-[95px]">Due</th>
                   <th className="th w-[110px]">State</th>
-                  <th className="th w-[150px]">Action</th>
+                  <th className="th w-[90px] text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -345,21 +423,16 @@ export default function RevenuePage() {
                           </span>
                         )}
                       </td>
-                      <td className="td">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <Button variant="secondary" size="xs" icon={<Pencil size={11} />} onClick={() => openEdit(ar)}>
-                            Edit
-                          </Button>
-                          <Button
-                            variant="danger"
-                            size="xs"
-                            icon={<Trash2 size={11} />}
-                            onClick={() => deleteInvoice(ar)}
-                            disabled={deleteMut.isPending}
-                          >
-                            Delete
-                          </Button>
-                        </div>
+                      <td className="td text-center">
+                        <RevenueActionMenu
+                          ar={ar}
+                          canConfirm={isMD}
+                          isConfirming={confirmMut.isPending}
+                          isDeleting={deleteMut.isPending}
+                          onEdit={openEdit}
+                          onConfirm={(invoice) => confirmMut.mutate(invoice.id)}
+                          onDelete={deleteInvoice}
+                        />
                       </td>
                     </tr>
                   );

@@ -140,7 +140,7 @@ export const receivablesApi = {
     api.get<ReceivablesSummary>("/receivables/summary", { params }),
   create:  (data: unknown)  => api.post<AccountReceivable>("/receivables", data),
   update:  (id: number, data: unknown) => api.patch<AccountReceivable>(`/receivables/${id}`, data),
-  confirm: (id: number)     => api.post<AccountReceivable>(`/receivables/${id}/confirm`),
+  confirm: (id: number)     => api.post<AccountReceivable>(`/receivables/${id}/confirm`, {}),
   delete:  (id: number)     => api.delete<MessageResponse>(`/receivables/${id}`),
 };
 

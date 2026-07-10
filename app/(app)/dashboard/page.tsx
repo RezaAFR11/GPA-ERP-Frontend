@@ -31,6 +31,11 @@ function getLast6Months(): { key: string; label: string }[] {
   return result;
 }
 
+function moneyValue(value: number | string | null | undefined): number {
+  const num = typeof value === "string" ? Number(value) : value ?? 0;
+  return Number.isFinite(num) ? num : 0;
+}
+
 // ── Custom tooltip ────────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -116,8 +121,8 @@ function BurnBar({ project }: { project: Project }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { data: projects = [], isLoading: projLoad } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => projectsApi.list({ status: "active" }).then((r) => r.data.items),
+    queryKey: ["projects", "dashboard", "active"],
+    queryFn: () => projectsApi.list({ status: "active", archived: false, limit: 500 }).then((r) => r.data.items),
   });
 
   const { data: recentExpenses = [], isLoading: expLoad } = useQuery({
@@ -136,9 +141,9 @@ export default function DashboardPage() {
   });
 
   // ── Aggregate KPIs ──────────────────────────────────────────────────────────
-  const totalBudget    = projects.reduce((s, p) => s + p.contract_value, 0);
-  const totalCommitted = projects.reduce((s, p) => s + p.total_committed, 0);
-  const totalRevenue   = projects.reduce((s, p) => s + p.total_revenue, 0);
+  const totalBudget    = projects.reduce((s, p) => s + (Number(p.contract_value) || 0), 0);
+  const totalCommitted = projects.reduce((s, p) => s + (Number(p.total_committed) || 0), 0);
+  const totalRevenue   = projects.reduce((s, p) => s + (Number(p.total_revenue) || 0), 0);
   const marginPct      = totalRevenue > 0
     ? pct(totalRevenue - totalCommitted, totalRevenue)
     : 0;
@@ -154,11 +159,11 @@ export default function DashboardPage() {
         e.created_at.slice(0, 7) === key &&
         !["draft", "rejected"].includes(e.status)
       )
-      .reduce((s, e) => s + e.amount, 0);
+      .reduce((s, e) => s + moneyValue(e.amount), 0);
 
     const monthRevenue = allReceivables
       .filter((r) => r.created_at.slice(0, 7) === key && r.status === "confirmed")
-      .reduce((s, r) => s + r.amount, 0);
+      .reduce((s, r) => s + moneyValue(r.amount), 0);
 
     const rev  = parseFloat((monthRevenue / 1_000_000).toFixed(1));
     const spent = parseFloat((monthSpent   / 1_000_000).toFixed(1));
@@ -173,18 +178,18 @@ export default function DashboardPage() {
 
   const thisMonthCommitted = allExpenses
     .filter((e) => e.created_at.slice(0, 7) === thisMonth && !["draft","rejected"].includes(e.status))
-    .reduce((s, e) => s + e.amount, 0);
+    .reduce((s, e) => s + moneyValue(e.amount), 0);
   const lastMonthCommitted = allExpenses
     .filter((e) => e.created_at.slice(0, 7) === lastMonth && !["draft","rejected"].includes(e.status))
-    .reduce((s, e) => s + e.amount, 0);
+    .reduce((s, e) => s + moneyValue(e.amount), 0);
   const committedDelta = thisMonthCommitted - lastMonthCommitted;
 
   const thisMonthRevenue = allReceivables
     .filter((r) => r.created_at.slice(0, 7) === thisMonth && r.status === "confirmed")
-    .reduce((s, r) => s + r.amount, 0);
+    .reduce((s, r) => s + moneyValue(r.amount), 0);
   const lastMonthRevenue = allReceivables
     .filter((r) => r.created_at.slice(0, 7) === lastMonth && r.status === "confirmed")
-    .reduce((s, r) => s + r.amount, 0);
+    .reduce((s, r) => s + moneyValue(r.amount), 0);
   const revenueDelta = thisMonthRevenue - lastMonthRevenue;
 
   const hasChartData = marginTrend.some((d) => d.revenue > 0 || d.spent > 0);
