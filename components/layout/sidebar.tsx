@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
+import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
 import { ROLE_LABEL } from "@/lib/utils";
 import { getBranding } from "@/lib/branding";
 
@@ -24,7 +25,7 @@ interface NavItem {
 
 const WORKSPACE_ITEMS: NavItem[] = [
   { href: "/dashboard",     menuKey: "dashboard",       label: "Dashboard",        icon: LayoutDashboard },
-  { href: "/action-center", menuKey: "action_center",   label: "Action Center",    icon: Inbox, badge: 7 },
+  { href: "/action-center", menuKey: "action_center",   label: "Action Center",    icon: Inbox },
   { href: "/projects",      menuKey: "project_command", label: "Project Command",  icon: FolderKanban    },
 ];
 
@@ -132,6 +133,7 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
   const visibleSelfSvc    = SELF_SERVICE_ITEMS.filter(i => canAccessMenu(i.menuKey));
   const showSelfSvc       = isSelfService || (visibleSelfSvc.length > 0 && visibleHris.length === 0);
   const showSettings      = canAccessMenu("settings");
+  const actionCenterCount = useActionCenterCount(canAccessMenu("action_center"));
 
   const initials = user?.full_name?.split(" ").map(w => w[0]).join("").slice(0, 2) ?? "?";
 
@@ -183,9 +185,12 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
         {visibleWorkspace.length > 0 && (
           <>
             <SbSection label="Workspace" dot="#2563EB" />
-            {visibleWorkspace.map(item => (
-              <NavLink key={item.href} item={item} active={isActive(item)} onClose={onClose} />
-            ))}
+            {visibleWorkspace.map(item => {
+              const navItem = item.menuKey === "action_center" && actionCenterCount > 0
+                ? { ...item, badge: actionCenterCount }
+                : item;
+              return <NavLink key={item.href} item={navItem} active={isActive(item)} onClose={onClose} />;
+            })}
           </>
         )}
 

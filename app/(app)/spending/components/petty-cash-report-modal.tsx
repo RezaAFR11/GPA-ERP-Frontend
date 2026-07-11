@@ -213,8 +213,8 @@ export default function PettyCashReportModal({ open, onClose }: Props) {
   const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: projects = [] } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => projectsApi.list().then((r) => r.data.items),
+    queryKey: ["projects", "active-for-petty-cash"],
+    queryFn: () => projectsApi.list({ status: "active", archived: false, limit: 500 }).then((r) => r.data.items),
     enabled: open,
   });
   const { data: costCodes = [] } = useQuery({

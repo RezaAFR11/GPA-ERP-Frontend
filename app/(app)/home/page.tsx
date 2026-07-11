@@ -11,6 +11,7 @@ import {
 import { useAuth, useRole } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
 
 // ── Time-aware Indonesian greeting ────────────────────────────────────────────
 function getGreeting(): string {
@@ -44,7 +45,7 @@ interface ModuleItem {
 
 const MODULES: ModuleItem[] = [
   { href: "/dashboard",        menuKey: "dashboard",        label: "Dashboard",          icon: LayoutDashboard, color: "#2563EB", section: "workspace"  },
-  { href: "/action-center",    menuKey: "action_center",    label: "Action Center",      icon: Inbox,           color: "#F59E0B", section: "workspace", badge: 7 },
+  { href: "/action-center",    menuKey: "action_center",    label: "Action Center",      icon: Inbox,           color: "#F59E0B", section: "workspace"  },
   { href: "/projects",         menuKey: "project_command",  label: "Project Command",    icon: FolderKanban,    color: "#0D9488", section: "workspace"  },
   { href: "/spending",         menuKey: "spending",         label: "Spending",           icon: CreditCard,      color: "#DC2626", section: "finance"    },
   { href: "/revenue",          menuKey: "revenue_ar",       label: "Revenue",            icon: TrendingUp,      color: "#16A34A", section: "finance"    },
@@ -135,6 +136,7 @@ export default function HomePage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const actionCenterCount = useActionCenterCount(canAccessMenu("action_center"));
 
   // Self-service users (WORKER/STAFF) should never reach /home
   useEffect(() => {
@@ -152,7 +154,12 @@ export default function HomePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const visibleModules = MODULES.filter(m => canAccessMenu(m.menuKey));
+  const visibleModules = MODULES
+    .filter(m => canAccessMenu(m.menuKey))
+    .map(m => m.menuKey === "action_center" && actionCenterCount > 0
+      ? { ...m, badge: actionCenterCount }
+      : m
+    );
   const visibleRecents = RECENTS.filter(r => visibleModules.some(m => m.href === r.href));
 
   const filtered = search.trim()

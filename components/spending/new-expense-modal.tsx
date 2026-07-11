@@ -84,8 +84,8 @@ export default function NewExpenseModal({ open, onClose }: Props) {
 
   // Load data
   const { data: projects = [] } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => projectsApi.list().then((r) => r.data.items),
+    queryKey: ["projects", "active-for-expense"],
+    queryFn: () => projectsApi.list({ status: "active", archived: false, limit: 500 }).then((r) => r.data.items),
     enabled: open && !isReimbursement,
   });
 

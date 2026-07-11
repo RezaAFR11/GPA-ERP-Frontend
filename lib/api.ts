@@ -173,6 +173,7 @@ export const expensesApi = {
   lock:    (id: number)                => api.post<Expense>(`/expenses/${id}/lock`),
   reject:  (id: number, reason: string) =>
     api.post<Expense>(`/expenses/${id}/reject`, { reason }),
+  delete:  (id: number)         => api.delete<MessageResponse>(`/expenses/${id}`),
   audit:   (id: number)         => api.get<AuditLog[]>(`/expenses/${id}/audit`),
   uploadReceipt: (file: File) => {
     const fd = new FormData();

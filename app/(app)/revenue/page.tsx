@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search, Trash2, X, MoreHorizontal } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ARStatusBadge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Pagination } from "@/components/ui/pagination";
@@ -27,18 +28,19 @@ const schema = z.object({
   customer_name: z.string().optional(),
   due_date: z.string().optional(),
   description: z.string().min(3, "At least 3 characters"),
+}).refine((data) => (data.actual_payment ?? 0) <= data.amount, {
+  path: ["actual_payment"],
+  message: "Payment cannot exceed invoice amount",
 });
 type FormData = z.infer<typeof schema>;
 type PaymentFilter = "all" | "paid" | "partial" | "open";
 const PAGE_SIZE = 20;
 
 function paidAmount(ar: AccountReceivable) {
-  if (ar.actual_payment != null) return ar.actual_payment;
-  return ar.status === "confirmed" ? ar.amount : 0;
+  return ar.actual_payment ?? 0;
 }
 
 function remainingAmount(ar: AccountReceivable) {
-  if (ar.remaining_amount != null) return Math.max(ar.remaining_amount, 0);
   return Math.max(ar.amount - paidAmount(ar), 0);
 }
 
@@ -79,6 +81,7 @@ function RevenueActionMenu({
   onDelete: (ar: AccountReceivable) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const isConfirmed = ar.status === "confirmed";
   const confirmDisabled = isConfirmed || !canConfirm || isConfirming;
   const deleteDisabled = isConfirmed || isDeleting;
@@ -86,6 +89,7 @@ function RevenueActionMenu({
   return (
     <div className="relative flex justify-center">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
         className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
@@ -93,10 +97,13 @@ function RevenueActionMenu({
       >
         <MoreHorizontal size={14} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-7 z-20 bg-white border border-gray-100 rounded-xl shadow-modal w-44 py-1 overflow-hidden text-left">
+      <FloatingActionMenu
+        open={open}
+        anchorRef={buttonRef}
+        onClose={() => setOpen(false)}
+        widthClass="w-44"
+        estimatedHeight={170}
+      >
             <button
               type="button"
               onClick={() => { onEdit(ar); setOpen(false); }}
@@ -132,9 +139,7 @@ function RevenueActionMenu({
             >
               <Trash2 size={12} className="text-red-500" /> Delete
             </button>
-          </div>
-        </>
-      )}
+      </FloatingActionMenu>
     </div>
   );
 }
@@ -176,10 +181,21 @@ export default function RevenuePage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects", "active-for-revenue"],
-    queryFn: () => projectsApi.list({ limit: 200 }).then((r) => r.data.items),
+    queryFn: () => projectsApi.list({ limit: 500 }).then((r) => r.data.items),
   });
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.status === "active" && !project.is_archived),
+    [projects]
+  );
+  const editProjects = useMemo(() => {
+    if (!editing || activeProjects.some((project) => project.id === editing.project_id)) {
+      return activeProjects;
+    }
+    const currentProject = projectById.get(editing.project_id);
+    return currentProject ? [currentProject, ...activeProjects] : activeProjects;
+  }, [activeProjects, editing, projectById]);
 
   const totalInvoiced = Number(summary?.total_invoiced ?? 0);
   const totalPaid = Number(summary?.total_paid ?? 0);
@@ -208,15 +224,15 @@ export default function RevenuePage() {
   });
 
   const updateMut = useMutation({
-    mutationFn: (d: FormData & { remaining_amount?: number }) => {
+    mutationFn: (d: FormData) => {
       if (!editing) throw new Error("No invoice selected");
       return receivablesApi.update(editing.id, {
+        project_id: d.project_id,
         invoice_no: d.invoice_no || null,
         customer_name: d.customer_name || null,
         description: d.description,
         amount: d.amount,
         actual_payment: d.actual_payment || null,
-        remaining_amount: d.remaining_amount ?? Math.max(d.amount - (d.actual_payment || 0), 0),
         due_date: d.due_date ? new Date(d.due_date).toISOString() : null,
       });
     },
@@ -244,7 +260,7 @@ export default function RevenuePage() {
   const confirmMut = useMutation({
     mutationFn: (id: number) => receivablesApi.confirm(id),
     onSuccess: () => {
-      toastSuccess("Payment confirmed", "Client payment is now reflected in revenue");
+      toastSuccess("Revenue confirmed", "The invoice is now included in recognised revenue");
       qc.invalidateQueries({ queryKey: ["receivables"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -302,14 +318,18 @@ export default function RevenuePage() {
     setDeleting(ar);
   }
 
-  function editMoneyInput(field: "amount" | "actual_payment" | "remaining") {
+  function editMoneyInput(field: "amount" | "actual_payment") {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value.replace(/[^0-9.]/g, "");
       const formatted = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-      setEditAmounts((current) => ({ ...current, [field === "actual_payment" ? "paid" : field]: formatted }));
-      if (field !== "remaining") {
-        setValue(field, parseFloat(raw) || 0, { shouldValidate: true });
-      }
+      setEditAmounts((current) => {
+        const next = { ...current, [field === "actual_payment" ? "paid" : "amount"]: formatted };
+        const amount = parseFloat(next.amount.replace(/,/g, "")) || 0;
+        const paid = parseFloat(next.paid.replace(/,/g, "")) || 0;
+        next.remaining = Math.max(amount - paid, 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+        return next;
+      });
+      setValue(field, parseFloat(raw) || 0, { shouldValidate: true });
     };
   }
 
@@ -391,7 +411,7 @@ export default function RevenuePage() {
                   <th className="th w-[125px] text-right border-l border-gray-100">Paid</th>
                   <th className="th w-[135px] text-right border-l border-gray-100">Outstanding</th>
                   <th className="th w-[95px]">Due</th>
-                  <th className="th w-[110px]">State</th>
+                  <th className="th w-[145px]">Revenue / Payment</th>
                   <th className="th w-[90px] text-center">Action</th>
                 </tr>
               </thead>
@@ -414,14 +434,19 @@ export default function RevenuePage() {
                       <td className="td text-right num text-xs font-semibold text-amber-700 whitespace-nowrap border-l border-gray-100">{compactMoney(remainingAmount(ar))}</td>
                       <td className="td text-xs text-gray-400 num whitespace-nowrap">{cleanDate(ar.due_date || ar.invoice_date || ar.created_at)}</td>
                       <td className="td">
-                        {state === "paid" ? <ARStatusBadge status="confirmed" /> : (
+                        <div className="flex flex-col items-start gap-1">
+                          <ARStatusBadge status={ar.status} />
                           <span className={cn(
                             "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
-                            state === "partial" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500"
+                            state === "paid"
+                              ? "bg-green-50 text-green-700"
+                              : state === "partial"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-gray-100 text-gray-500"
                           )}>
                             {state}
                           </span>
-                        )}
+                        </div>
                       </td>
                       <td className="td text-center">
                         <RevenueActionMenu
@@ -471,7 +496,7 @@ export default function RevenuePage() {
       >
         <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
           <Select label="Project" placeholder="Select project..." error={errors.project_id?.message} {...register("project_id")}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
           </Select>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Invoice No" placeholder="INV.GPA..." {...register("invoice_no")} />
@@ -512,10 +537,7 @@ export default function RevenuePage() {
             <Button
               variant="primary"
               loading={isSubmitting || updateMut.isPending}
-              onClick={handleSubmit((d) => updateMut.mutate({
-                ...d,
-                remaining_amount: parseFloat(editAmounts.remaining.replace(/,/g, "")) || 0,
-              }))}
+              onClick={handleSubmit((d) => updateMut.mutate(d))}
             >
               Save Updates
             </Button>
@@ -524,7 +546,7 @@ export default function RevenuePage() {
       >
         <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
           <Select label="Project" placeholder="Select project..." error={errors.project_id?.message} {...register("project_id")}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+            {editProjects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
           </Select>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Invoice No" placeholder="INV.GPA..." {...register("invoice_no")} />
@@ -557,8 +579,8 @@ export default function RevenuePage() {
                 type="text"
                 inputMode="decimal"
                 value={editAmounts.remaining}
-                onChange={editMoneyInput("remaining")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50"
+                readOnly
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 font-mono cursor-not-allowed"
               />
             </div>
           </div>

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   LayoutGrid, List, Plus, Upload, Search,
   ChevronRight, Calendar,
-  Building2, AlertTriangle, X, Check, Archive, RotateCcw,
+  Building2, AlertTriangle, X, Check, Archive, RotateCcw, Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { projectsApi } from "@/lib/api";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/modal";
 import { ProjectStatusBadge } from "@/components/ui/badge";
 import { CardSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import ImportModal from "./components/import-modal";
@@ -223,7 +224,15 @@ function HealthBadge({ project }: { project: Project }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────────────────────
-function ProjectCard({ project, onArchive }: { project: Project; onArchive: (project: Project) => void }) {
+function ProjectCard({
+  project,
+  onArchive,
+  onDelete,
+}: {
+  project: Project;
+  onArchive: (project: Project) => void;
+  onDelete: (project: Project) => void;
+}) {
   const usedPct    = pct(project.total_committed, project.contract_value);
   const revPct     = pct(project.total_revenue,   project.contract_value);
   const marginPct  = project.total_revenue > 0
@@ -262,6 +271,15 @@ function ProjectCard({ project, onArchive }: { project: Project; onArchive: (pro
           >
             {project.is_archived ? <RotateCcw size={14} /> : <Archive size={14} />}
           </button>
+          {project.is_archived && (
+            <button
+              className="p-1 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+              title="Delete project"
+              onClick={() => onDelete(project)}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -332,7 +350,15 @@ function ProjectCard({ project, onArchive }: { project: Project; onArchive: (pro
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────────
-function ProjectRow({ project, onArchive }: { project: Project; onArchive: (project: Project) => void }) {
+function ProjectRow({
+  project,
+  onArchive,
+  onDelete,
+}: {
+  project: Project;
+  onArchive: (project: Project) => void;
+  onDelete: (project: Project) => void;
+}) {
   const usedPct   = pct(project.total_committed, project.contract_value);
   const marginPct = project.total_revenue > 0
     ? pct(project.total_revenue - project.total_committed, project.total_revenue)
@@ -404,6 +430,15 @@ function ProjectRow({ project, onArchive }: { project: Project; onArchive: (proj
           >
             {project.is_archived ? <RotateCcw size={14} /> : <Archive size={14} />}
           </button>
+          {project.is_archived && (
+            <button
+              onClick={() => onDelete(project)}
+              className="p-1.5 rounded-md text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+              title="Delete project"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -420,6 +455,7 @@ export default function ProjectsPage() {
   const [page,        setPage]   = useState(1);
   const [importOpen,  setImport] = useState(false);
   const [newOpen,     setNew]    = useState(false);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
 
   const PAGE_SIZE = 18; // 3-col grid fits 18 nicely
 
@@ -449,6 +485,18 @@ export default function ProjectsPage() {
       toastSuccess(project.is_archived ? "Project restored" : "Project archived", project.code);
     },
     onError: (e) => toastError("Update failed", getErrorMessage(e)),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (project: Project) => projectsApi.delete(project.id),
+    onSuccess: (_, project) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["receivables"] });
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      setDeletingProject(null);
+      toastSuccess("Project deleted", project.code);
+    },
+    onError: (e) => toastError("Delete failed", getErrorMessage(e)),
   });
 
   return (
@@ -572,7 +620,14 @@ export default function ProjectsPage() {
                   </p>
                 </div>
               )
-              : paged.map((p) => <ProjectCard key={p.id} project={p} onArchive={(project) => archiveMut.mutate(project)} />)
+              : paged.map((p) => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  onArchive={(project) => archiveMut.mutate(project)}
+                  onDelete={setDeletingProject}
+                />
+              ))
           }
         </div>
       ) : (
@@ -600,7 +655,14 @@ export default function ProjectsPage() {
                     </td>
                   </tr>
                 ) : (
-                  paged.map((p) => <ProjectRow key={p.id} project={p} onArchive={(project) => archiveMut.mutate(project)} />)
+                  paged.map((p) => (
+                    <ProjectRow
+                      key={p.id}
+                      project={p}
+                      onArchive={(project) => archiveMut.mutate(project)}
+                      onDelete={setDeletingProject}
+                    />
+                  ))
                 )}
               </tbody>
             </table></div>
@@ -619,6 +681,24 @@ export default function ProjectsPage() {
       )}
 
       <ImportModal open={importOpen} onClose={() => setImport(false)} />
+      <ConfirmDialog
+        open={!!deletingProject}
+        onClose={() => {
+          if (!deleteMut.isPending) setDeletingProject(null);
+        }}
+        onConfirm={() => {
+          if (deletingProject) deleteMut.mutate(deletingProject);
+        }}
+        title="Delete Project"
+        message={
+          deletingProject
+            ? `Delete archived project ${deletingProject.code}? Related revenue, spending, petty cash, and project documents will also be deleted.`
+            : ""
+        }
+        confirmLabel="Delete"
+        danger
+        loading={deleteMut.isPending}
+      />
 
     </div>
   );

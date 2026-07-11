@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { toastError } from "@/lib/hooks/use-toast";
-import { useRole } from "@/lib/auth-context";
+import { useAuth, useRole } from "@/lib/auth-context";
+import type { Expense, Project } from "@/lib/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
@@ -24,6 +25,30 @@ const PIE_COLORS = [
   "#1E40AF", "#F59E0B", "#16A34A", "#DC2626",
   "#7C3AED", "#0891B2", "#D97706", "#374151",
 ];
+
+const COMMITTED_EXPENSE_STATUSES = new Set(["verified", "approved", "paid", "hard_locked"]);
+
+async function loadAllExpenses(): Promise<Expense[]> {
+  const items: Expense[] = [];
+  let skip = 0;
+  while (true) {
+    const response = await expensesApi.list({ skip, limit: 500 });
+    items.push(...response.data.items);
+    if (items.length >= response.data.total || response.data.items.length === 0) return items;
+    skip += response.data.items.length;
+  }
+}
+
+async function loadAllProjects(): Promise<Project[]> {
+  const items: Project[] = [];
+  let skip = 0;
+  while (true) {
+    const response = await projectsApi.list({ skip, limit: 500 });
+    items.push(...response.data.items);
+    if (items.length >= response.data.total || response.data.items.length === 0) return items;
+    skip += response.data.items.length;
+  }
+}
 
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -56,9 +81,11 @@ async function downloadBlob(promise: Promise<{ data: Blob }>, filename: string) 
 // ── Download tab ───────────────────────────────────────────────────────────────
 
 function DownloadTab() {
-  const { isFinance, isMD, isCostControl } = useRole();
+  const { canAccessMenu } = useAuth();
+  const { isFinance, isMD, isCostControl, isHR } = useRole();
   const canPayroll  = isFinance || isMD;                 // payroll-summary: FINANCE/MD/SUPER_ADMIN
   const canProjFin  = isMD || isCostControl || isFinance; // project-financial: MD/COST_CONTROL/FINANCE/SUPER_ADMIN
+  const canPettyExport = (isFinance || isHR) && canAccessMenu("petty_cash");
 
   const thisYear  = new Date().getFullYear();
   const thisMonth = new Date().getMonth() + 1;
@@ -346,6 +373,7 @@ function DownloadTab() {
       )}
 
       {/* 5. Rekap Petty Cash */}
+      {canPettyExport && (
       <Card padding={false}>
         <div className="px-5 py-4 border-b border-gray-50">
           <div className="flex items-center gap-2 mb-0.5">
@@ -374,6 +402,7 @@ function DownloadTab() {
           </Button>
         </div>
       </Card>
+      )}
 
     </div>
   );
@@ -387,17 +416,17 @@ export default function ReportsPage() {
 
   const { data: expenses = [], isLoading: expLoad } = useQuery({
     queryKey: ["expenses", "all"],
-    queryFn: () => expensesApi.list({ limit: 500 }).then((r) => r.data.items),
+    queryFn: loadAllExpenses,
   });
 
   const { data: projects = [], isLoading: projLoad } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => projectsApi.list().then((r) => r.data.items),
+    queryKey: ["projects", "reports-all"],
+    queryFn: loadAllProjects,
   });
 
   // Aggregate: spending by cost code category
   const categoryMap: Record<string, number> = {};
-  expenses.forEach((e) => {
+  expenses.filter((expense) => COMMITTED_EXPENSE_STATUSES.has(expense.status)).forEach((e) => {
     const cat = e.cost_code?.category ?? "Other";
     categoryMap[cat] = (categoryMap[cat] ?? 0) + e.amount;
   });
@@ -460,7 +489,7 @@ export default function ReportsPage() {
           <h1 className="text-xl font-bold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-400 mt-0.5">Analytics & exports · All projects</p>
         </div>
-        {tab !== "Unduh Laporan" && (
+        {tab === "Spending" && (
           <div className="flex gap-2">
             <Button
               variant="secondary"
@@ -469,11 +498,11 @@ export default function ReportsPage() {
               onClick={exportExcel}
               disabled={excelLoading}
             >
-              Export Excel
+              Export Expenses Excel
             </Button>
             <Button variant="secondary" size="sm" icon={<FileText size={13} />}
               onClick={exportCSV}>
-              Export CSV
+              Export Expenses CSV
             </Button>
           </div>
         )}
@@ -608,14 +637,14 @@ export default function ReportsPage() {
           <div className="px-5 py-4 border-b border-gray-50">
             <h3 className="text-sm font-semibold text-gray-900">Margin by Project</h3>
           </div>
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Project</th>
-                <th className="th text-right">Contract</th>
-                <th className="th text-right hidden md:table-cell">Revenue</th>
-                <th className="th text-right hidden md:table-cell">Committed</th>
-                <th className="th text-right">Margin</th>
+                <th className="th w-[28%]">Project</th>
+                <th className="th !text-right">Contract</th>
+                <th className="th !text-right hidden md:table-cell">Revenue</th>
+                <th className="th !text-right hidden md:table-cell">Committed</th>
+                <th className="th !text-right">Margin</th>
                 <th className="th">Health</th>
               </tr>
             </thead>
@@ -626,10 +655,10 @@ export default function ReportsPage() {
                   : 0;
                 return (
                   <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="td">
+                    <td className="td w-[28%]">
                       <div>
                         <p className="num text-xs font-semibold text-gray-500">{p.code}</p>
-                        <p className="text-sm font-medium text-gray-900 truncate max-w-[160px]">{p.name}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate max-w-[360px]">{p.name}</p>
                       </div>
                     </td>
                     <td className="td text-right num font-semibold text-gray-900">{formatCurrency(p.contract_value)}</td>

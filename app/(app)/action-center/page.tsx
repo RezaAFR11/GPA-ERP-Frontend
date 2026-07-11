@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { ExpenseStatusBadge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
-import { useRole } from "@/lib/auth-context";
+import { useAuth, useRole } from "@/lib/auth-context";
+import { getActionCenterQueues, loadActionCenterExpenses } from "@/lib/action-center";
 import type { Expense } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -112,34 +113,25 @@ function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onVie
 
 export default function ActionCenterPage() {
   const qc             = useQueryClient();
-  const { isCostControl, isFinance, isMD, isSuperAdmin, isHR, isPM } = useRole();
+  const { user } = useAuth();
+  const { role } = useRole();
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
-  const { data: expenses = [], isLoading, refetch } = useQuery({
+  const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["expenses", "action-center"],
-    queryFn: () => expensesApi.list({ my_queue: false, limit: 100 }).then((r) => r.data.items),
+    queryFn: loadActionCenterExpenses,
   });
 
   // GA receipt review — reimbursements waiting for GA at step 0
-  const toReceiptReview = expenses.filter((e) =>
-    e.status === "submitted" &&
-    e.current_approver_role === "GA" &&
-    isHR
-  );
+  const queues = getActionCenterQueues(expenses, role, user?.id ?? null);
+  const toReceiptReview = queues.receiptReview;
   // CC verify — any submitted expense waiting for COST_CONTROL
-  const toVerify  = expenses.filter((e) =>
-    e.status === "submitted" &&
-    e.current_approver_role === "COST_CONTROL" &&
-    isCostControl
-  );
-  const toApprove = expenses.filter((e) =>
-    ["submitted","verified"].includes(e.status) &&
-    (isMD || (e.current_approver_role === "PM" && isPM) || (e.current_approver_role === "FINANCE" && isFinance))
-  );
-  const toPay     = expenses.filter((e) => e.status === "approved" && isFinance);
-  const toSubmit  = expenses.filter((e) => e.status === "draft");
+  const toVerify = queues.verify;
+  const toApprove = queues.approve;
+  const toPay = queues.pay;
+  const toSubmit = queues.submit;
 
-  const total = toReceiptReview.length + toVerify.length + toApprove.length + toPay.length;
+  const total = queues.total;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -171,7 +163,7 @@ export default function ActionCenterPage() {
 
       {isLoading ? (
         <TableSkeleton rows={6} cols={7} />
-      ) : total === 0 && toSubmit.length === 0 ? (
+      ) : total === 0 ? (
         <Card className="py-14 text-center">
           <CheckCircle2 size={36} className="text-green-400 mx-auto mb-3" />
           <p className="text-sm font-semibold text-gray-600">You're all caught up!</p>
@@ -216,7 +208,7 @@ export default function ActionCenterPage() {
             onView={(exp) => setSelectedExpense(exp)}
           />
           <ActionGroup
-            title="Drafts (not yet submitted)"
+            title="Drafts / Rejected (ready to submit)"
             icon={Send}
             color="bg-gray-500"
             expenses={toSubmit}

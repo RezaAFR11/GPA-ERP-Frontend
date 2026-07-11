@@ -1,12 +1,12 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Plus, Search, Filter, SlidersHorizontal, ChevronUp, ChevronDown,
   ChevronLeft, ChevronRight, MoreHorizontal, CheckCircle2, Send,
   XCircle, ArrowDownUp, ClipboardList, FileSpreadsheet, Copy, Printer,
-  History, Receipt,
+  History, Receipt, Trash2,
 } from "lucide-react";
 import { expensesApi, pettyCashReportsApi, projectsApi } from "@/lib/api";
 import {
@@ -15,6 +15,8 @@ import {
 } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { ExpenseStatusBadge, ApproverPill } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import NewExpenseModal from "@/components/spending/new-expense-modal";
@@ -23,8 +25,9 @@ import ExpenseVoucherModal from "./components/expense-voucher-modal";
 import { ApprovalTimeline } from "./components/approval-timeline";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useRole } from "@/lib/auth-context";
-import type { Expense, ExpenseStatus } from "@/lib/types";
+import { useAuth, useRole } from "@/lib/auth-context";
+import { getExpenseActionPermissions } from "@/lib/action-center";
+import type { Expense, ExpenseStatus, RoleName } from "@/lib/types";
 
 type SortKey   = "id" | "amount" | "created_at" | "status";
 type SortDir   = "asc" | "desc";
@@ -62,16 +65,25 @@ function ActionMenu({
   onRefresh,
   onDuplicate,
   onPrintVoucher,
+  onDelete,
   isSelfService,
+  role,
+  userId,
+  canDuplicate,
 }: {
   expense: Expense;
   onRefresh: () => void;
   onDuplicate: (expense: Expense) => void;
   onPrintVoucher: (expense: Expense) => void;
+  onDelete: (expense: Expense) => void;
   isSelfService: boolean;
+  role: RoleName | null;
+  userId: number | null;
+  canDuplicate: boolean;
 }) {
   const [open,           setOpen]           = useState(false);
   const [historyOpen,    setHistoryOpen]    = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const {
     data:     auditHistory,
@@ -91,25 +103,31 @@ function ActionMenu({
     };
   }
 
-  const canSubmit  = expense.status === "draft" || expense.status === "rejected";
+  const permissions = getExpenseActionPermissions(expense, role, userId);
+  const canSubmit = permissions.canSubmit;
   // Self-service users (STAFF/WORKER) can only submit — they cannot verify, approve, or pay
-  const canVerify  = !isSelfService && expense.status === "submitted";
-  const canApprove = !isSelfService && (expense.status === "submitted" || expense.status === "verified");
-  const canPay     = !isSelfService && expense.status === "approved";
-  const canReject  = !isSelfService && !["paid","hard_locked","rejected"].includes(expense.status);
+  const canVerify = !isSelfService && permissions.canVerify;
+  const canApprove = !isSelfService && permissions.canApprove;
+  const canPay = !isSelfService && permissions.canPay;
+  const canReject = !isSelfService && permissions.canReject;
+  const canDelete = permissions.canDelete;
 
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         onClick={() => setOpen((o) => !o)}
         className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
       >
         <MoreHorizontal size={14} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-7 z-20 bg-white border border-gray-100 rounded-xl shadow-modal w-48 py-1 overflow-hidden">
+      <FloatingActionMenu
+        open={open}
+        anchorRef={buttonRef}
+        onClose={() => setOpen(false)}
+        widthClass="w-48"
+        estimatedHeight={historyOpen ? 430 : 300}
+      >
             {canSubmit && (
               <button
                 onClick={makeAction(() => expensesApi.submit(expense.id), "Expense submitted")}
@@ -145,12 +163,14 @@ function ActionMenu({
 
             {/* ── Utility actions ──────────────────────────────────────── */}
             <div className="my-1 border-t border-gray-100" />
-            <button
-              onClick={() => { onDuplicate(expense); setOpen(false); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Copy size={12} className="text-amber-500" /> Duplicate
-            </button>
+            {canDuplicate && (
+              <button
+                onClick={() => { onDuplicate(expense); setOpen(false); }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Copy size={12} className="text-amber-500" /> Duplicate
+              </button>
+            )}
             <button
               onClick={() => { onPrintVoucher(expense); setOpen(false); }}
               className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
@@ -206,9 +226,18 @@ function ActionMenu({
                 </button>
               </>
             )}
-          </div>
-        </>
-      )}
+            {canDelete && (
+              <>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  onClick={() => { onDelete(expense); setOpen(false); }}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
+              </>
+            )}
+      </FloatingActionMenu>
     </div>
   );
 }
@@ -244,10 +273,13 @@ export default function SpendingPage() {
   const qc           = useQueryClient();
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const { isSelfService } = useRole();
+  const { user, canAccessMenu } = useAuth();
+  const { isSelfService, role } = useRole();
+  const canPettyCash = canAccessMenu("petty_cash");
   const [newOpen,       setNewOpen]      = useState(false);
   const [pettyOpen,     setPettyOpen]    = useState(false);
   const [voucherExpense,setVoucherExpense] = useState<Expense | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const [search,        setSearch]       = useState("");
   const [statusFilter,  setStatus]       = useState<ExpenseStatus | "">("");
   const [projectFilter, setProject]      = useState<number | "">("");
@@ -283,6 +315,17 @@ export default function SpendingPage() {
     onError: (e) => toastError("Duplicate failed", getErrorMessage(e)),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (expense: Expense) => expensesApi.delete(expense.id),
+    onSuccess: (_, expense) => {
+      toastSuccess("Expense deleted", `#${expense.id}`);
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["expenses-stats"] });
+      setDeletingExpense(null);
+    },
+    onError: (e) => toastError("Delete failed", getErrorMessage(e)),
+  });
+
   const { data: allExpenses = [], isLoading, refetch } = useQuery({
     queryKey: ["expenses", statusFilter, projectFilter],
     queryFn: () =>
@@ -295,7 +338,7 @@ export default function SpendingPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects"],
-    queryFn:  () => projectsApi.list({ limit: 200 }).then((r) => r.data.items),
+    queryFn:  () => projectsApi.list({ limit: 500 }).then((r) => r.data.items),
     enabled:  !isSelfService,   // STAFF/WORKER have no project_command access
   });
 
@@ -306,7 +349,7 @@ export default function SpendingPage() {
         ...(projectFilter ? { project_id: Number(projectFilter) } : {}),
         limit: 20,
       }).then((r) => r.data),
-    enabled: !isSelfService,
+    enabled: !isSelfService && canPettyCash,
   });
 
   const { data: stats } = useQuery({
@@ -370,7 +413,7 @@ export default function SpendingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!isSelfService && (
+          {!isSelfService && canPettyCash && (
             <Button
               variant="secondary"
               icon={<ClipboardList size={13} />}
@@ -404,11 +447,13 @@ export default function SpendingPage() {
 
       {/* ── Summary strip (not shown for self-service) ────────────────────── */}
       {!isSelfService && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className={cn("grid gap-3", canPettyCash ? "grid-cols-3" : "grid-cols-2")}>
           {[
             { label: "Total Logged",       value: formatCurrency(stats?.total_logged ?? 0),   color: "text-gray-900" },
             { label: "Approved / Paid",     value: formatCurrency(stats?.total_approved ?? 0), color: "text-green-600" },
-            { label: "Petty Cash Batches",  value: `${pettyReports.length} · ${formatCurrency(pettyTotal)}`, color: "text-blue-600" },
+            ...(canPettyCash ? [
+              { label: "Petty Cash Batches", value: `${pettyReports.length} · ${formatCurrency(pettyTotal)}`, color: "text-blue-600" },
+            ] : []),
           ].map((s) => (
             <div key={s.label} className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-card">
               <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">{s.label}</p>
@@ -418,7 +463,7 @@ export default function SpendingPage() {
         </div>
       )}
 
-      {!isSelfService && pettyReports.length > 0 && (
+      {!isSelfService && canPettyCash && pettyReports.length > 0 && (
         <div className="bg-white border border-gray-100 rounded-xl px-4 py-3 shadow-card">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2">
@@ -575,9 +620,18 @@ export default function SpendingPage() {
                         <ActionMenu
                           expense={exp}
                           isSelfService={isSelfService}
+                          role={role}
+                          userId={user?.id ?? null}
+                          canDuplicate={
+                            exp.project_id == null ||
+                            projects.some((project) =>
+                              project.id === exp.project_id && project.status === "active" && !project.is_archived
+                            )
+                          }
                           onRefresh={() => qc.invalidateQueries({ queryKey: ["expenses"] })}
                           onDuplicate={(e) => duplicateMutation.mutate(e)}
                           onPrintVoucher={(e) => setVoucherExpense(e)}
+                          onDelete={(e) => setDeletingExpense(e)}
                         />
                       </td>
                     </tr>
@@ -641,12 +695,46 @@ export default function SpendingPage() {
       </button>
 
       <NewExpenseModal open={newOpen} onClose={() => setNewOpen(false)} />
-      {!isSelfService && <PettyCashReportModal open={pettyOpen} onClose={() => setPettyOpen(false)} />}
+      {!isSelfService && canPettyCash && <PettyCashReportModal open={pettyOpen} onClose={() => setPettyOpen(false)} />}
       <ExpenseVoucherModal
         open={!!voucherExpense}
         onClose={() => setVoucherExpense(null)}
         expense={voucherExpense}
       />
+      <Modal
+        open={!!deletingExpense}
+        onClose={() => {
+          if (!deleteMutation.isPending) setDeletingExpense(null);
+        }}
+        title="Delete Expense"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={deleteMutation.isPending}
+              onClick={() => setDeletingExpense(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteMutation.isPending}
+              onClick={() => {
+                if (deletingExpense) deleteMutation.mutate(deletingExpense);
+              }}
+            >
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-gray-600">
+          Delete expense #{deletingExpense?.id}?
+        </p>
+        <p className="mt-2 text-xs text-gray-400">
+          Only draft or rejected expenses can be deleted.
+        </p>
+      </Modal>
     </div>
   );
 }
