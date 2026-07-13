@@ -13,7 +13,7 @@ const PAGE_CRUMBS: Record<string, { label: string; parent?: string }> = {
   "/projects":      { label: "Project Command" },
   "/revenue":       { label: "Revenue",           parent: "Finance"    },
   "/spending":      { label: "Spending",           parent: "Finance"    },
-  "/inventory":     { label: "Inventory & Assets", parent: "Operations" },
+  "/inventory":     { label: "Inventory & Stock",  parent: "Operations" },
   "/legal":         { label: "Legal & Proposals" },
   "/reports":       { label: "Reports" },
   "/vault":         { label: "Vault" },

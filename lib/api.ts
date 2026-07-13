@@ -1,8 +1,8 @@
 import axios from "axios";
 import type {
-  AccountReceivable, ApprovalRule, ApprovalRuleCreate, AuditLog,
+  AccountReceivable, ApprovalRule, ApprovalRuleCreate, ApprovalRuleUpdate, AuditLog,
   CostCentre, CostCentreCreate, CostCode, CostCodeCreate, Expense, ExpenseStats,
-  InventoryItem, InventoryItemCreate, InventoryTxn, InventoryTxnCreate,
+  InventoryItem, InventoryItemCreate, InventoryItemUpdate, InventorySummary, InventoryTxn, InventoryTxnCreate,
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
   ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserSummary,
@@ -213,12 +213,13 @@ export const reportsApi = {
 export const vaultApi = {
   listRules:     () => api.get<ApprovalRule[]>("/vault/approval-rules"),
   createRule:    (data: ApprovalRuleCreate) => api.post<ApprovalRule>("/vault/approval-rules", data),
-  updateRule:    (id: number, data: Partial<ApprovalRuleCreate>) =>
+  updateRule:    (id: number, data: ApprovalRuleUpdate) =>
     api.patch<ApprovalRule>(`/vault/approval-rules/${id}`, data),
   deactivateRule:(id: number) =>
     api.delete<MessageResponse>(`/vault/approval-rules/${id}`),
-  auditLog: (params?: { entity_type?: string; entity_id?: number }) =>
-    api.get<AuditLog[]>("/vault/audit-log", { params }),
+  auditLog: (params?: { entity_type?: string; entity_id?: number; changed_by?: number; skip?: number; limit?: number }) =>
+    api.get<PaginatedResponse<AuditLog>>("/vault/audit-log", { params }),
+  auditEntityTypes: () => api.get<string[]>("/vault/audit-log/entity-types"),
 };
 
 // ─── Legal Documents ──────────────────────────────────────────────────────────
@@ -235,8 +236,8 @@ export const legalApi = {
   reject: (id: number, note: string) =>
     api.post<LegalDocument>(`/legal/${id}/reject`, { note }),
   delete: (id: number) => api.delete<MessageResponse>(`/legal/${id}`),
-  pdfUrl: (id: number) =>
-    `${BASE_URL}/legal/${id}/pdf`,
+  downloadPdf: (id: number) =>
+    api.get<Blob>(`/legal/${id}/pdf`, { responseType: "blob" }),
   mdSignatureStatus: () => api.get<{ exists: boolean; path: string }>("/legal/signature/md"),
   uploadMdSignature: (file: File) => {
     const form = new FormData();
@@ -250,11 +251,12 @@ export const legalApi = {
 // ─── Inventory ───────────────────────────────────────────────────────────────
 
 export const inventoryApi = {
-  list:   (params?: { category?: string; low_stock?: boolean; q?: string; skip?: number; limit?: number }) =>
+  list:   (params?: { category?: string; low_stock?: boolean; is_active?: boolean; q?: string; skip?: number; limit?: number }) =>
     api.get<PaginatedResponse<InventoryItem>>("/inventory", { params }),
+  summary: () => api.get<InventorySummary>("/inventory/summary"),
   get:    (id: number) => api.get<InventoryItem>(`/inventory/${id}`),
   create: (data: InventoryItemCreate) => api.post<InventoryItem>("/inventory", data),
-  update: (id: number, data: Partial<InventoryItemCreate>) =>
+  update: (id: number, data: InventoryItemUpdate) =>
     api.patch<InventoryItem>(`/inventory/${id}`, data),
   delete: (id: number) => api.delete<MessageResponse>(`/inventory/${id}`),
   txn:    (id: number, data: InventoryTxnCreate) =>

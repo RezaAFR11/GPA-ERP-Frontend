@@ -220,13 +220,34 @@ export default function ActionCenterPage() {
       )}
 
       {selectedExpense && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedExpense(null)}>
-          <div className="w-full max-w-md bg-white h-full shadow-2xl overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-gray-900">Expense #{selectedExpense.id}</h2>
-              <button onClick={() => setSelectedExpense(null)} className="p-2 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expense-detail-title"
+        >
+          <div
+            className="absolute inset-0 bg-[rgba(15,23,42,0.42)] modal-backdrop animate-fade-in"
+            onClick={() => setSelectedExpense(null)}
+          />
+
+          <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-[480px] flex-col overflow-hidden rounded-xl bg-white shadow-modal animate-slide-up">
+            <div className="relative border-b border-[#E7E5DF] px-6 py-5">
+              <h2 id="expense-detail-title" className="w-full text-center text-lg font-bold text-gray-900">
+                Expense #{selectedExpense.id}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setSelectedExpense(null)}
+                aria-label="Close expense details"
+                title="Close"
+                className="absolute right-5 top-4 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div className="space-y-4">
+
+            <div className="space-y-4 overflow-y-auto px-6 py-5">
               {selectedExpense.expense_type === "reimbursement" && (
                 <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
                   <Receipt size={13} className="text-amber-500 shrink-0" />
@@ -253,6 +274,12 @@ export default function ActionCenterPage() {
                 <div className="text-xs text-red-500 font-medium">⚠ No receipt attached</div>
               )}
               <div><p className="text-xs text-gray-400 uppercase tracking-wide">Submitted</p><p className="text-sm text-gray-500 mt-1 num">{fmtDateTime(selectedExpense.created_at)}</p></div>
+            </div>
+
+            <div className="flex items-center justify-center border-t border-[#E7E5DF] bg-[#F8FAF9] px-6 py-4">
+              <Button variant="secondary" onClick={() => setSelectedExpense(null)}>
+                Close
+              </Button>
             </div>
           </div>
         </div>

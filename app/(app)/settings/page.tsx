@@ -22,7 +22,7 @@ import type {
 } from "@/lib/types";
 import axios from "axios";
 
-const TABS = ["Profile", "Security", "Users", "Config", "Email"] as const;
+const TABS = ["Profile", "Security", "Users", "Email"] as const;
 type Tab = typeof TABS[number];
 
 const COST_CODE_CATS: CostCodeCategory[] = ["Direct", "Site", "Personnel", "Overhead", "Other"];
@@ -1364,14 +1364,13 @@ export default function SettingsPage() {
   const { isSuperAdmin }   = useRole();
 
   const visibleTabs = TABS.filter((t) =>
-    t !== "Users" && t !== "Config" && t !== "Email" ? true : isSuperAdmin
+    t !== "Users" && t !== "Email" ? true : isSuperAdmin
   );
 
   const TAB_ICONS: Record<Tab, React.ReactNode> = {
     Profile:  <User size={14} />,
     Security: <Lock size={14} />,
     Users:    <Users size={14} />,
-    Config:   <SlidersHorizontal size={14} />,
     Email:    <Mail size={14} />,
   };
 
@@ -1406,7 +1405,6 @@ export default function SettingsPage() {
       {tab === "Profile"  && <ProfileTab />}
       {tab === "Security" && <SecurityTab />}
       {tab === "Users"    && isSuperAdmin && <UsersTab />}
-      {tab === "Config"   && isSuperAdmin && <ConfigTab />}
       {tab === "Email"    && isSuperAdmin && <EmailTab />}
     </div>
   );

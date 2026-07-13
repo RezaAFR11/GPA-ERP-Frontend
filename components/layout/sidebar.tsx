@@ -36,7 +36,7 @@ const FINANCE_ITEMS: NavItem[] = [
 ];
 
 const OPERATIONS_ITEMS: NavItem[] = [
-  { href: "/inventory",     menuKey: "inventory",       label: "Inventory & Assets", icon: Package       },
+  { href: "/inventory",     menuKey: "inventory",       label: "Inventory & Stock",  icon: Package       },
   { href: "/legal",         menuKey: "legal",           label: "Legal & Proposals",  icon: FileText      },
   { href: "/vault",         menuKey: "vault",           label: "Vault",              icon: ShieldCheck, adminOnly: true },
 ];

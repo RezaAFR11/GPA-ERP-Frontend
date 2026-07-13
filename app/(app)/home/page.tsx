@@ -50,7 +50,7 @@ const MODULES: ModuleItem[] = [
   { href: "/spending",         menuKey: "spending",         label: "Spending",           icon: CreditCard,      color: "#DC2626", section: "finance"    },
   { href: "/revenue",          menuKey: "revenue_ar",       label: "Revenue",            icon: TrendingUp,      color: "#16A34A", section: "finance"    },
   { href: "/reports",          menuKey: "reports",          label: "Reports",            icon: BarChart2,       color: "#334155", section: "finance"    },
-  { href: "/inventory",        menuKey: "inventory",        label: "Inventory & Assets", icon: Package,         color: "#0E7490", section: "operations" },
+  { href: "/inventory",        menuKey: "inventory",        label: "Inventory & Stock",  icon: Package,         color: "#0E7490", section: "operations" },
   { href: "/legal",            menuKey: "legal",            label: "Legal & Proposals",  icon: FileText,        color: "#EA580C", section: "operations" },
   { href: "/vault",            menuKey: "vault",            label: "Vault",              icon: ShieldCheck,     color: "#475569", section: "operations" },
   { href: "/hris",             menuKey: "hris_dashboard",   label: "HRIS Dashboard",     icon: HeartPulse,      color: "#7C3AED", section: "hris"       },

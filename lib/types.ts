@@ -331,6 +331,23 @@ export interface InventoryItemCreate {
   notes?:       string;
 }
 
+export interface InventoryItemUpdate {
+  name?:       string;
+  category?:   ItemCategory;
+  unit?:       string;
+  min_stock?:  number;
+  unit_cost?:  number;
+  location?:   string;
+  notes?:      string;
+  is_active?:  boolean;
+}
+
+export interface InventorySummary {
+  total_items:     number;
+  low_stock_count: number;
+  total_value:     number;
+}
+
 export interface InventoryTxnCreate {
   txn_type:    TxnType;
   quantity:    number;
@@ -380,6 +397,15 @@ export interface ApprovalRuleCreate {
   cost_code_category?: CostCodeCategory;
   required_role:       RoleName;
   priority:            number;
+}
+
+export interface ApprovalRuleUpdate {
+  min_amount?:          number;
+  max_amount?:          number | null;
+  cost_code_category?:  CostCodeCategory | null;
+  required_role?:       RoleName;
+  priority?:            number;
+  is_active?:           boolean;
 }
 
 // ─── User create ──────────────────────────────────────────────────────────────

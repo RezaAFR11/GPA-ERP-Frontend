@@ -8,6 +8,7 @@ import {
 import { legalApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionModal } from "@/components/ui/confirm-action-modal";
 import { Pagination } from "@/components/ui/pagination";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { DOC_TEMPLATES } from "@/lib/doc-templates";
@@ -61,8 +62,8 @@ function Toast({ msg, ok }: { msg: string; ok: boolean }) {
 
 // ─── New Document Modal ───────────────────────────────────────────────────────
 function NewDocModal({
-  doc, onClose, onCreated,
-}: { doc?: LegalDocument; onClose: () => void; onCreated: () => void }) {
+  doc, onClose, onSaved,
+}: { doc?: LegalDocument; onClose: () => void; onSaved: (saved: LegalDocument) => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<LegalDocCreate>({
     doc_number:        doc?.doc_number ?? "",
@@ -82,7 +83,10 @@ function NewDocModal({
 
   const save = useMutation({
     mutationFn: () => doc ? legalApi.update(doc.id, form) : legalApi.create(form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["legal"] }); onCreated(); },
+    onSuccess: ({ data }) => {
+      qc.invalidateQueries({ queryKey: ["legal"] });
+      onSaved(data);
+    },
     onError:   (e) => setError(getErrorMessage(e)),
   });
 
@@ -245,10 +249,11 @@ function NewDocModal({
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 function DetailPanel({
-  doc, onClose, showToast,
+  doc, onClose, onUpdated, showToast,
 }: {
   doc: LegalDocument;
   onClose: () => void;
+  onUpdated: (updated: LegalDocument) => void;
   showToast: (msg: string, ok: boolean) => void;
 }) {
   const qc = useQueryClient();
@@ -256,44 +261,60 @@ function DetailPanel({
   const { canSign } = useRole();
   const [rejectNote, setRejectNote] = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
+
+  function refreshLegalQueries() {
+    qc.invalidateQueries({ queryKey: ["legal"] });
+    qc.invalidateQueries({ queryKey: ["legal-pending-count"] });
+  }
 
   const submit = useMutation({
     mutationFn: () => legalApi.submit(doc.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["legal"] }); showToast("Dokumen dikirim untuk ditandatangani", true); },
+    onSuccess: ({ data }) => {
+      refreshLegalQueries();
+      onUpdated(data);
+      showToast("Dokumen dikirim untuk ditandatangani", true);
+    },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
   const sign = useMutation({
     mutationFn: () => legalApi.sign(doc.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["legal"] }); showToast("Dokumen ditandatangani", true); },
+    onSuccess: ({ data }) => {
+      refreshLegalQueries();
+      onUpdated(data);
+      showToast("Dokumen ditandatangani", true);
+    },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
   const reject = useMutation({
     mutationFn: () => legalApi.reject(doc.id, rejectNote),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["legal"] }); showToast("Dokumen dikembalikan ke draft", true); setShowRejectInput(false); },
+    onSuccess: ({ data }) => {
+      refreshLegalQueries();
+      onUpdated(data);
+      showToast("Dokumen ditolak", true);
+      setShowRejectInput(false);
+    },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
   const del = useMutation({
     mutationFn: () => legalApi.delete(doc.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["legal"] }); onClose(); showToast("Dokumen dihapus", true); },
+    onSuccess: () => { refreshLegalQueries(); onClose(); showToast("Dokumen dihapus", true); },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
   function downloadPdf() {
-    const url = legalApi.pdfUrl(doc.id);
-    fetch(url, { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`PDF not available (${r.status})`);
-        return r.blob();
-      })
-      .then((blob) => {
+    legalApi.downloadPdf(doc.id)
+      .then(({ data: blob }) => {
+        const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
+        a.href = objectUrl;
         a.download = `${(doc.doc_number ?? `doc-${doc.id}`).replace(/\//g, "-")}.pdf`;
         a.click();
+        URL.revokeObjectURL(objectUrl);
       })
       .catch((err) => showToast(getErrorMessage(err), false));
   }
@@ -302,14 +323,29 @@ function DetailPanel({
   const isDraft   = doc.status === "draft";
   const isPending = doc.status === "submitted";
   const isSigned  = doc.status === "signed";
+  const isRejected = doc.status === "rejected";
+  const canManageDocument = isOwner || user?.role.name === "SUPER_ADMIN" || user?.role.name === "MD";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <ConfirmActionModal
+        open={showDeleteConfirm}
+        title="Delete Document"
+        message={`Delete document ${doc.doc_number || doc.title}?`}
+        confirmLabel="Delete"
+        pending={del.isPending}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={() => del.mutate()}
+      />
       {editing && (
         <NewDocModal
           doc={doc}
           onClose={() => setEditing(false)}
-          onCreated={() => { setEditing(false); showToast("Draft diperbarui", true); }}
+          onSaved={(updated) => {
+            setEditing(false);
+            onUpdated(updated);
+            showToast("Draft diperbarui", true);
+          }}
         />
       )}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
@@ -390,9 +426,9 @@ function DetailPanel({
               {isSigned ? "Unduh PDF Resmi" : "Unduh Draft PDF"}
             </Button>
 
-            {isDraft && (isOwner || user?.role.name === "SUPER_ADMIN") && (
+            {(isDraft || isRejected) && canManageDocument && (
               <Button size="sm" variant="secondary" icon={<PenLine size={13} />} onClick={() => setEditing(true)}>
-                Edit Draft
+                {isRejected ? "Revisi Dokumen" : "Edit Draft"}
               </Button>
             )}
 
@@ -420,10 +456,10 @@ function DetailPanel({
               </>
             )}
 
-            {/* Delete draft */}
-            {isDraft && (isOwner || user?.role.name === "SUPER_ADMIN") && (
+            {/* Delete draft or rejected document */}
+            {(isDraft || isRejected) && canManageDocument && (
               <button
-                onClick={() => { if (confirm("Hapus dokumen ini?")) del.mutate(); }}
+                onClick={() => setShowDeleteConfirm(true)}
                 className="ml-auto text-[11px] text-red-400 hover:text-red-600 flex items-center gap-1 transition-colors"
               >
                 <Trash2 size={11} /> Hapus
@@ -478,8 +514,8 @@ export default function LegalPage() {
   return (
     <div className="space-y-5 animate-fade-in">
       {toast    && <Toast {...toast} />}
-      {showNew  && <NewDocModal onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); showToast("Draft berhasil disimpan", true); }} />}
-      {selected && <DetailPanel doc={selected} onClose={() => setSelected(null)} showToast={showToast} />}
+      {showNew  && <NewDocModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); showToast("Draft berhasil disimpan", true); }} />}
+      {selected && <DetailPanel doc={selected} onClose={() => setSelected(null)} onUpdated={setSelected} showToast={showToast} />}
 
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
@@ -512,6 +548,7 @@ export default function LegalPage() {
           { key: "draft",     label: "Draft",           count: filter === "draft" ? (legalData?.total ?? 0) : 0 },
           { key: "submitted", label: "Menunggu",        count: pendingCount },
           { key: "signed",    label: "Ditandatangani",  count: filter === "signed" ? (legalData?.total ?? 0) : 0 },
+          { key: "rejected",  label: "Ditolak",         count: filter === "rejected" ? (legalData?.total ?? 0) : 0 },
         ] as { key: DocStatus | "all"; label: string; count: number }[]).map(({ key, label, count }) => (
           <button
             key={key}
@@ -545,7 +582,7 @@ export default function LegalPage() {
             <span className="font-semibold">{pendingCount} dokumen</span> menunggu tanda tangan Anda.
           </p>
           <button
-            onClick={() => setFilter("submitted")}
+            onClick={() => { setFilter("submitted"); setPage(1); }}
             className="ml-auto text-xs font-semibold text-amber-700 hover:text-amber-900 underline"
           >
             Lihat
