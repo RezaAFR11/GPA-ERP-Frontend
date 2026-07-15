@@ -13,25 +13,38 @@ import {
   LayoutDashboard, Receipt, CheckSquare, Settings,
   Plus, Fingerprint, CalendarDays, Home, Banknote,
 } from "lucide-react";
+import { recordRecentModule } from "@/lib/recent-modules";
 
 // ── Mobile bottom nav ─────────────────────────────────────────────────────────
 
 const NAV_TABS_DEFAULT = [
-  { href: "/dashboard",     icon: LayoutDashboard, label: "Home"     },
-  { href: "/spending",      icon: Receipt,         label: "Spending" },
-  { href: "/action-center", icon: CheckSquare,     label: "Aksi"     },
-  { href: "/settings",      icon: Settings,        label: "Setelan"  },
+  { href: "/dashboard",     menuKey: "dashboard",     icon: LayoutDashboard, label: "Home"     },
+  { href: "/spending",      menuKey: "spending",      icon: Receipt,         label: "Spending" },
+  { href: "/action-center", menuKey: "action_center", icon: CheckSquare,     label: "Aksi"     },
+  { href: "/settings",      menuKey: "settings",      icon: Settings,        label: "Setelan"  },
 ] as const;
 
 const NAV_TABS_WORKER = [
-  { href: "/hris/me",             icon: Home,         label: "Beranda"  },
-  { href: "/hris/me/attendance",  icon: Fingerprint,  label: "Absensi"  },
-  { href: "/hris/me/leave",       icon: CalendarDays, label: "Cuti"     },
-  { href: "/hris/me/payslip",     icon: Banknote,     label: "Slip Gaji"},
+  { href: "/hris/me",             menuKey: null,                icon: Home,         label: "Beranda"  },
+  { href: "/hris/me/attendance",  menuKey: "hris_attendance",  icon: Fingerprint,  label: "Absensi"  },
+  { href: "/hris/me/leave",       menuKey: "hris_leave",       icon: CalendarDays, label: "Cuti"     },
+  { href: "/hris/me/payslip",     menuKey: "hris_my_payslip",  icon: Banknote,     label: "Slip Gaji"},
 ] as const;
 
-function BottomNav({ pathname, isSelfService }: { pathname: string; isSelfService: boolean }) {
-  const tabs = isSelfService ? NAV_TABS_WORKER : NAV_TABS_DEFAULT;
+function BottomNav({
+  pathname,
+  isSelfService,
+  canAccessMenu,
+}: {
+  pathname: string;
+  isSelfService: boolean;
+  canAccessMenu: (key: string) => boolean;
+}) {
+  const hasSelfServiceAccess = ["hris_attendance", "hris_leave", "hris_my_payslip"]
+    .some(key => canAccessMenu(key));
+  const tabs = (isSelfService ? NAV_TABS_WORKER : NAV_TABS_DEFAULT).filter(tab =>
+    tab.menuKey === null ? hasSelfServiceAccess : canAccessMenu(tab.menuKey)
+  );
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 sm:hidden flex safe-area-inset-bottom">
       {tabs.map(({ href, icon: Icon, label }) => {
@@ -70,10 +83,12 @@ function MobileFAB({ canAccess }: { canAccess: boolean }) {
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, canAccessMenu, firstAllowedPath } = useAuth();
+  const { user, isAuthenticated, isLoading, canAccessMenu, firstAllowedPath } = useAuth();
   const { isWorker, isSelfService } = useRole();
   const router   = useRouter();
   const pathname = usePathname();
+  const canSearch = ["project_command", "spending", "action_center", "revenue_ar", "legal", "inventory"]
+    .some((key) => canAccessMenu(key));
 
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
   const [expenseOpen,  setExpenseOpen]  = useState(false);
@@ -81,6 +96,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Close sidebar on route change
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (user) recordRecentModule(pathname, user.id);
+  }, [pathname, user]);
 
   // Auth guard
   useEffect(() => {
@@ -92,13 +111,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        if (canSearch) setPaletteOpen((o) => !o);
       }
       if (e.key === "Escape") setPaletteOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [canSearch]);
 
   // HRIS admin guard + general menu access guard
   useEffect(() => {
@@ -158,13 +177,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Mobile bottom nav */}
-      <BottomNav pathname={pathname} isSelfService={isSelfService} />
+      <BottomNav
+        pathname={pathname}
+        isSelfService={isSelfService}
+        canAccessMenu={canAccessMenu}
+      />
 
       {/* Mobile FAB — only for full ERP users who have spending access (not self-service) */}
       {!isSelfService && <MobileFAB canAccess={canAccessMenu("spending")} />}
 
       <NewExpenseModal open={expenseOpen} onClose={() => setExpenseOpen(false)} />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {canSearch && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
       <ForcePasswordChange />
     </div>
   );
@@ -184,9 +207,11 @@ function menuKeyForPath(pathname: string): string | null {
   if (pathname.startsWith("/vault"))         return "vault";
   // HRIS self-service (more specific first)
   if (pathname.startsWith("/hris/me/payslip"))    return "hris_my_payslip";
+  if (pathname.startsWith("/hris/me/documents"))  return "hris_my_payslip";
+  if (pathname.startsWith("/hris/me/overtime"))   return "hris_attendance";
   if (pathname.startsWith("/hris/me/leave"))      return "hris_leave";
   if (pathname.startsWith("/hris/me/attendance")) return "hris_attendance";
-  if (pathname.startsWith("/hris/me"))            return "hris_attendance";
+  if (pathname === "/hris/me")                    return null;
   // HRIS admin
   if (pathname.startsWith("/hris/employees"))     return "hris_employees";
   if (pathname.startsWith("/hris/attendance"))    return "hris_attendance";

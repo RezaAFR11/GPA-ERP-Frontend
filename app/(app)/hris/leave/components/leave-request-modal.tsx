@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { hrisLeaveApi } from "@/lib/api";
@@ -19,25 +20,32 @@ export function LeaveRequestModal({ open, onClose, employee, leaveTypes, balance
   const [start,  setStart]  = useState("");
   const [end,    setEnd]    = useState("");
   const [reason, setReason] = useState("");
+  const [doctorCert, setDoctorCert] = useState<File | null>(null);
   const [err,    setErr]    = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const selectedBalance = balances.find(b => b.leave_type_id === Number(ltId));
   const selectedType    = leaveTypes.find(t => t.id === Number(ltId));
 
-  /* Calculate days (business days simple count) */
-  function calcDays(s: string, e: string): number {
-    if (!s || !e) return 0;
-    const ms = new Date(e).getTime() - new Date(s).getTime();
-    return Math.max(1, Math.round(ms / 86400000) + 1);
-  }
-  const days = calcDays(start, end);
+  const validRange = Boolean(start && end && end >= start);
+  const { data: durationPreview, isFetching: previewLoading } = useQuery({
+    queryKey: ["hris", "leave-duration", start, end],
+    queryFn: () => hrisLeaveApi.previewDuration(start, end).then(r => r.data),
+    enabled: validRange,
+  });
+  const days = durationPreview?.days ?? 0;
 
   async function submit() {
     if (!employee) { setErr("Tidak ada karyawan dipilih"); return; }
     if (!ltId)     { setErr("Pilih jenis cuti"); return; }
     if (!start || !end) { setErr("Isi tanggal mulai dan selesai"); return; }
     if (new Date(end) < new Date(start)) { setErr("Tanggal selesai harus ≥ tanggal mulai"); return; }
+    if (previewLoading || !durationPreview) { setErr("Menunggu perhitungan hari kerja"); return; }
+    if (days === 0) { setErr("Rentang tanggal tidak memiliki hari kerja"); return; }
+    if (selectedType?.requires_doctor_cert && !doctorCert) {
+      setErr("Surat dokter wajib diunggah untuk jenis cuti ini");
+      return;
+    }
     if (selectedBalance && selectedType?.max_days_per_year != null) {
       if (selectedBalance.remaining < days) {
         setErr(`Saldo tidak cukup. Sisa: ${selectedBalance.remaining} hari`);
@@ -47,17 +55,21 @@ export function LeaveRequestModal({ open, onClose, employee, leaveTypes, balance
 
     setSaving(true); setErr(null);
     try {
+      const doctorCertUrl = doctorCert
+        ? (await hrisLeaveApi.uploadDoctorCertificate(doctorCert)).data.file_url
+        : undefined;
       await hrisLeaveApi.create({
         employee_id:   employee.id,
         leave_type_id: Number(ltId),
         start_date:    start,
         end_date:      end,
         reason:        reason || undefined,
+        doctor_cert_url: doctorCertUrl,
       });
       onCreated();
       onClose();
       // reset
-      setLtId(""); setStart(""); setEnd(""); setReason("");
+      setLtId(""); setStart(""); setEnd(""); setReason(""); setDoctorCert(null);
     } catch (e: unknown) {
       setErr((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal mengajukan cuti");
     } finally { setSaving(false); }
@@ -84,7 +96,7 @@ export function LeaveRequestModal({ open, onClose, employee, leaveTypes, balance
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Jenis Cuti</label>
-          <select value={ltId} onChange={e => setLtId(e.target.value)} className={field}>
+          <select value={ltId} onChange={e => { setLtId(e.target.value); setDoctorCert(null); }} className={field}>
             <option value="">— Pilih jenis cuti —</option>
             {leaveTypes.filter(t => t.is_active).map(t => {
               const bal = balances.find(b => b.leave_type_id === t.id);
@@ -112,8 +124,28 @@ export function LeaveRequestModal({ open, onClose, employee, leaveTypes, balance
 
         {start && end && (
           <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-            Durasi: <span className="font-semibold text-blue-700">{days} hari</span>
+            Durasi: <span className="font-semibold text-blue-700">
+              {previewLoading ? "Menghitung..." : `${days} hari kerja`}
+            </span>
+            {!!durationPreview?.excluded_holidays.length && (
+              <span className="block mt-1 text-[11px] text-gray-500">
+                Libur tidak dihitung: {durationPreview.excluded_holidays.map(h => h.name).join(", ")}
+              </span>
+            )}
           </p>
+        )}
+
+        {selectedType?.requires_doctor_cert && (
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Surat Dokter *</label>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={e => setDoctorCert(e.target.files?.[0] ?? null)}
+              className="block w-full text-xs text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-medium file:text-blue-700"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">PDF, JPG, atau PNG. Maksimal 10 MB.</p>
+          </div>
         )}
 
         <div>

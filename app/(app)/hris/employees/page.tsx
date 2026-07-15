@@ -6,7 +6,7 @@ import {
   AlertTriangle, Building2, GraduationCap, ChevronRight, ChevronDown,
   Briefcase,
 } from "lucide-react";
-import { hrisEmployeesApi, hrisDepartmentsApi, hrisJobGradesApi, hrisWorkGroupsApi } from "@/lib/api";
+import { hrisEmployeesApi, hrisDepartmentsApi, hrisJobGradesApi, hrisWorkGroupsApi, hrisDashboardApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +19,7 @@ import type {
   BulkAccountResult, RoleName, WorkGroup, WorkGroupCreate, DepartmentNode,
 } from "@/lib/types";
 import EmployeeDetailModal from "./components/employee-detail-modal";
+import { useRole } from "@/lib/auth-context";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -229,11 +230,12 @@ function NewEmployeeModal({
 interface BulkCreateModalProps {
   open: boolean;
   employees: Employee[];
+  allowedRoles: readonly RoleName[];
   onClose: () => void;
   onDone: () => void;
 }
 
-function BulkCreateModal({ open, employees, onClose, onDone }: BulkCreateModalProps) {
+function BulkCreateModal({ open, employees, allowedRoles, onClose, onDone }: BulkCreateModalProps) {
   const [roleName, setRoleName] = useState<RoleName>("WORKER");
   const [results, setResults] = useState<BulkAccountResult[] | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
@@ -313,7 +315,7 @@ function BulkCreateModal({ open, employees, onClose, onDone }: BulkCreateModalPr
               value={roleName}
               onChange={(e) => setRoleName(e.target.value as RoleName)}
             >
-              {ASSIGNABLE_ROLES.map((r) => (
+              {allowedRoles.map((r) => (
                 <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>
               ))}
             </select>
@@ -729,6 +731,14 @@ function OrgChartPanel({ onSelectDept }: { onSelectDept: (id: number) => void })
 
 export default function EmployeesPage() {
   const qc = useQueryClient();
+  const { hasRole } = useRole();
+  const canCreateEmployee = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canCreateAccounts = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canManageEmployeeData = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canAssignElevatedRoles = hasRole("SUPER_ADMIN", "MD");
+  const allowedBulkRoles: readonly RoleName[] = canAssignElevatedRoles
+    ? ASSIGNABLE_ROLES
+    : ["WORKER", "STAFF"];
   const [search, setSearch] = useState("");
   const [filterTipe,   setFilterTipe]   = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -762,15 +772,20 @@ export default function EmployeesPage() {
     queryFn: () => hrisDepartmentsApi.list().then((r) => r.data),
   });
 
+  const { data: employeeStats, isLoading: statsLoading } = useQuery({
+    queryKey: ["hris", "dashboard", "stats", "employee-directory"],
+    queryFn: () => hrisDashboardApi.getStats().then(r => r.data),
+  });
+
   const employees = data?.items ?? [];
   const total     = data?.total ?? 0;
   const pages     = Math.ceil(total / LIMIT);
 
-  // KPI counts from current filtered list
-  const tetap     = employees.filter((e) => e.tipe === "Tetap").length;
-  const pkwt      = employees.filter((e) => e.tipe === "PKWT").length;
-  const outsource = employees.filter((e) => e.tipe === "Outsource").length;
-  const active    = employees.filter((e) => e.status === "active").length;
+  // KPI counts come from the full employee dataset, independent of pagination.
+  const tetap     = employeeStats?.employment_type_counts.Tetap ?? 0;
+  const pkwt      = employeeStats?.employment_type_counts.PKWT ?? 0;
+  const outsource = employeeStats?.employment_type_counts.Outsource ?? 0;
+  const active    = employeeStats?.active ?? 0;
 
   // Multi-select helpers
   const allChecked = employees.length > 0 && employees.every((e) => checkedIds.has(e.id));
@@ -798,6 +813,11 @@ export default function EmployeesPage() {
   }
 
   const checkedEmployees = employees.filter((e) => checkedIds.has(e.id));
+  const visibleTabs: Array<"employees" | "groups" | "orgchart"> = [
+    "employees",
+    ...(canManageEmployeeData ? (["groups"] as const) : []),
+    "orgchart",
+  ];
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -809,7 +829,7 @@ export default function EmployeesPage() {
             Direktori karyawan · {total} karyawan terdaftar
           </p>
         </div>
-        <Button
+        {canCreateEmployee && <Button
           variant="primary"
           size="sm"
           icon={<Plus size={14} />}
@@ -817,12 +837,12 @@ export default function EmployeesPage() {
           className="bg-teal-700 hover:bg-teal-600 border-teal-700"
         >
           Tambah Karyawan
-        </Button>
+        </Button>}
       </div>
 
       {/* Tab Toggle */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-        {(["employees", "groups", "orgchart"] as const).map(t => (
+        {visibleTabs.map(t => (
           <button key={t} onClick={() => setActiveTab(t)}
             className={cn(
               "px-4 py-1.5 rounded-md text-xs font-medium transition-colors",
@@ -833,7 +853,7 @@ export default function EmployeesPage() {
         ))}
       </div>
 
-      {activeTab === "groups" && <WorkGroupsPanel />}
+      {canManageEmployeeData && activeTab === "groups" && <WorkGroupsPanel />}
 
       {activeTab === "orgchart" && (
         <OrgChartPanel
@@ -849,10 +869,10 @@ export default function EmployeesPage() {
       {/* KPI Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total Aktif",   value: isLoading ? "…" : active,    color: "text-green-600" },
-          { label: "Tetap",         value: isLoading ? "…" : tetap,     color: "text-teal-600" },
-          { label: "PKWT",          value: isLoading ? "…" : pkwt,      color: "text-blue-600" },
-          { label: "Outsource",     value: isLoading ? "…" : outsource,  color: "text-orange-600" },
+          { label: "Total Aktif",   value: statsLoading ? "…" : active,    color: "text-green-600" },
+          { label: "Tetap",         value: statsLoading ? "…" : tetap,     color: "text-teal-600" },
+          { label: "PKWT",          value: statsLoading ? "…" : pkwt,      color: "text-blue-600" },
+          { label: "Outsource",     value: statsLoading ? "…" : outsource,  color: "text-orange-600" },
         ].map((kpi) => (
           <Card key={kpi.label} className="text-center py-3">
             <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">{kpi.label}</p>
@@ -909,7 +929,7 @@ export default function EmployeesPage() {
       </div>
 
       {/* Floating selection action bar */}
-      {checkedIds.size > 0 && (
+      {canCreateAccounts && checkedIds.size > 0 && (
         <div className="sticky top-4 z-20 flex items-center justify-between gap-3 rounded-xl bg-teal-700 text-white shadow-lg px-4 py-2.5">
           <div className="flex items-center gap-2">
             <CheckSquare size={16} className="text-teal-200" />
@@ -941,7 +961,7 @@ export default function EmployeesPage() {
           <thead>
             <tr className="border-b border-gray-100">
               {/* Select-all checkbox */}
-              <th className="th w-10">
+              {canCreateAccounts && <th className="th w-10">
                 <input
                   type="checkbox"
                   checked={allChecked}
@@ -949,7 +969,7 @@ export default function EmployeesPage() {
                   onChange={toggleAll}
                   className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                 />
-              </th>
+              </th>}
               <th className="th text-left">Karyawan</th>
               <th className="th text-left hidden md:table-cell">Departemen</th>
               <th className="th text-left hidden lg:table-cell">Grade</th>
@@ -963,14 +983,14 @@ export default function EmployeesPage() {
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i}>
-                  <td colSpan={8} className="px-4 py-3">
+                  <td colSpan={canCreateAccounts ? 8 : 7} className="px-4 py-3">
                     <Skeleton className="h-4 w-full" />
                   </td>
                 </tr>
               ))
             ) : employees.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-gray-400 text-sm">
+                <td colSpan={canCreateAccounts ? 8 : 7} className="text-center py-12 text-gray-400 text-sm">
                   <Users size={32} className="mx-auto mb-2 opacity-30" />
                   Tidak ada karyawan ditemukan
                 </td>
@@ -987,14 +1007,14 @@ export default function EmployeesPage() {
                     )}
                   >
                     {/* Row checkbox — stop propagation so clicking it doesn't open detail */}
-                    <td className="td w-10" onClick={(e) => e.stopPropagation()}>
+                    {canCreateAccounts && <td className="td w-10" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => toggleOne(emp.id)}
                         className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                       />
-                    </td>
+                    </td>}
 
                     {/* Name + employee_no */}
                     <td className="td" onClick={() => setSelected(emp)}>
@@ -1096,13 +1116,14 @@ export default function EmployeesPage() {
       )}
 
       {/* New Employee Modal */}
-      <NewEmployeeModal open={showNew} onClose={() => setShowNew(false)} />
+      {canCreateEmployee && <NewEmployeeModal open={showNew} onClose={() => setShowNew(false)} />}
 
       {/* Bulk Create Accounts Modal */}
-      {showBulk && (
+      {canCreateAccounts && showBulk && (
         <BulkCreateModal
           open={showBulk}
           employees={checkedEmployees}
+          allowedRoles={allowedBulkRoles}
           onClose={() => setShowBulk(false)}
           onDone={() => {
             setCheckedIds(new Set());

@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
 import { ROLE_LABEL } from "@/lib/utils";
-import { getBranding } from "@/lib/branding";
+import { getBranding, setBranding } from "@/lib/branding";
+import { settingsApi } from "@/lib/api";
 
 interface NavItem {
   href:       string;
@@ -115,13 +116,24 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
   const [branding, setBrandingState] = useState(getBranding);
 
   useEffect(() => {
+    let cancelled = false;
     const refresh = () => setBrandingState(getBranding());
     window.addEventListener("gpa_branding_changed", refresh);
-    return () => window.removeEventListener("gpa_branding_changed", refresh);
+    settingsApi.branding()
+      .then(({ data }) => {
+        if (!cancelled) setBranding(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("gpa_branding_changed", refresh);
+    };
   }, []);
 
-  const isActive = (item: NavItem) =>
-    pathname === item.href || pathname.startsWith(item.href + "/");
+  const isActive = (item: NavItem) => {
+    const exactOnly = item.href === "/hris" || item.href === "/hris/me";
+    return pathname === item.href || (!exactOnly && pathname.startsWith(item.href + "/"));
+  };
 
   const visibleWorkspace  = WORKSPACE_ITEMS.filter(i => canAccessMenu(i.menuKey));
   const visibleFinance    = FINANCE_ITEMS.filter(i => canAccessMenu(i.menuKey));
@@ -130,8 +142,12 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
     return canAccessMenu(i.menuKey);
   });
   const visibleHris       = isSelfService ? [] : HRIS_ITEMS.filter(i => canAccessMenu(i.menuKey));
-  const visibleSelfSvc    = SELF_SERVICE_ITEMS.filter(i => canAccessMenu(i.menuKey));
-  const showSelfSvc       = isSelfService || (visibleSelfSvc.length > 0 && visibleHris.length === 0);
+  const hasSelfSvcAccess  = ["hris_attendance", "hris_leave", "hris_my_payslip"]
+    .some(key => canAccessMenu(key));
+  const visibleSelfSvc    = SELF_SERVICE_ITEMS.filter(i =>
+    i.href === "/hris/me" ? hasSelfSvcAccess : canAccessMenu(i.menuKey)
+  );
+  const showSelfSvc       = visibleSelfSvc.length > 0;
   const showSettings      = canAccessMenu("settings");
   const actionCenterCount = useActionCenterCount(canAccessMenu("action_center"));
 
@@ -223,7 +239,7 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
 
         {showSelfSvc && (
           <>
-            <SbSection label="Portal Saya" dot="#6B7280" />
+            <SbSection label="My Portal" dot="#6B7280" />
             {visibleSelfSvc.map(item => (
               <NavLink key={item.href} item={item} active={isActive(item)} onClose={onClose} />
             ))}

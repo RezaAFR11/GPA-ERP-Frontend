@@ -10,7 +10,7 @@ import Link from "next/link";
 import { projectsApi } from "@/lib/api";
 import {
   formatCurrency, formatCompact, pct, fmtDate, getCurrencySymbol, CURRENCIES,
-  burnTailwind, PROJECT_STATUS_COLORS, getErrorMessage,
+  burnTailwind, PROJECT_STATUS_COLORS, getErrorMessage, getStoredCurrency, type CurrencyCode,
 } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import type { Project, ProjectStatus } from "@/lib/types";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { Pagination } from "@/components/ui/pagination";
+import { useRole } from "@/lib/auth-context";
 
 const STATUS_OPTS: ProjectStatus[] = ["active", "on_hold", "completed", "cancelled"];
 const STATUS_LABEL: Record<ProjectStatus, string> = {
@@ -33,7 +34,7 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     code: "", name: "", contract_value: "", status: "active" as ProjectStatus,
-    currency: "IDR", start_date: "", end_date: "",
+    currency: getStoredCurrency(), start_date: "", end_date: "",
   });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -119,7 +120,7 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
             </label>
             <select
               value={form.currency}
-              onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value as CurrencyCode }))}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             >
               {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
@@ -226,10 +227,14 @@ function HealthBadge({ project }: { project: Project }) {
 // ── Project Card ──────────────────────────────────────────────────────────────
 function ProjectCard({
   project,
+  canManage,
+  canDelete,
   onArchive,
   onDelete,
 }: {
   project: Project;
+  canManage: boolean;
+  canDelete: boolean;
   onArchive: (project: Project) => void;
   onDelete: (project: Project) => void;
 }) {
@@ -264,14 +269,14 @@ function ProjectCard({
             </span>
           )}
           <ProjectStatusBadge status={project.status} />
-          <button
+          {canManage && <button
             className="p-1 rounded-md text-gray-300 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-all"
             title={project.is_archived ? "Restore project" : "Archive project"}
             onClick={() => onArchive(project)}
           >
             {project.is_archived ? <RotateCcw size={14} /> : <Archive size={14} />}
-          </button>
-          {project.is_archived && (
+          </button>}
+          {canDelete && project.is_archived && (
             <button
               className="p-1 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
               title="Delete project"
@@ -352,10 +357,14 @@ function ProjectCard({
 // ── Table row ─────────────────────────────────────────────────────────────────
 function ProjectRow({
   project,
+  canManage,
+  canDelete,
   onArchive,
   onDelete,
 }: {
   project: Project;
+  canManage: boolean;
+  canDelete: boolean;
   onArchive: (project: Project) => void;
   onDelete: (project: Project) => void;
 }) {
@@ -423,14 +432,14 @@ function ProjectRow({
           >
             <ChevronRight size={14} />
           </Link>
-          <button
+          {canManage && <button
             onClick={() => onArchive(project)}
             className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             title={project.is_archived ? "Restore project" : "Archive project"}
           >
             {project.is_archived ? <RotateCcw size={14} /> : <Archive size={14} />}
-          </button>
-          {project.is_archived && (
+          </button>}
+          {canDelete && project.is_archived && (
             <button
               onClick={() => onDelete(project)}
               className="p-1.5 rounded-md text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
@@ -448,6 +457,9 @@ function ProjectRow({
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const qc  = useQueryClient();
+  const { isPM, isCostControl, isMD } = useRole();
+  const canManage = isPM || isCostControl;
+  const canDelete = isMD;
   const [view,        setView]   = useState<ViewMode>("card");
   const [search,      setSearch] = useState("");
   const [statusFilter,setStatus] = useState<ProjectStatus | "">("");
@@ -501,7 +513,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {newOpen && <NewProjectModal onClose={() => setNew(false)} />}
+      {canManage && newOpen && <NewProjectModal onClose={() => setNew(false)} />}
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -510,7 +522,7 @@ export default function ProjectsPage() {
             {projectData?.total ?? 0} project{(projectData?.total ?? 0) !== 1 ? "s" : ""} · All workspaces
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {canManage && <div className="flex items-center gap-2">
           <Button
             variant="secondary"
             size="sm"
@@ -527,7 +539,7 @@ export default function ProjectsPage() {
           >
             New Project
           </Button>
-        </div>
+        </div>}
       </div>
 
       {/* ── Filter bar ────────────────────────────────────────────────────── */}
@@ -624,6 +636,8 @@ export default function ProjectsPage() {
                 <ProjectCard
                   key={p.id}
                   project={p}
+                  canManage={canManage}
+                  canDelete={canDelete}
                   onArchive={(project) => archiveMut.mutate(project)}
                   onDelete={setDeletingProject}
                 />
@@ -659,6 +673,8 @@ export default function ProjectsPage() {
                     <ProjectRow
                       key={p.id}
                       project={p}
+                      canManage={canManage}
+                      canDelete={canDelete}
                       onArchive={(project) => archiveMut.mutate(project)}
                       onDelete={setDeletingProject}
                     />
@@ -680,9 +696,9 @@ export default function ProjectsPage() {
         />
       )}
 
-      <ImportModal open={importOpen} onClose={() => setImport(false)} />
+      {canManage && <ImportModal open={importOpen} onClose={() => setImport(false)} />}
       <ConfirmDialog
-        open={!!deletingProject}
+        open={canDelete && !!deletingProject}
         onClose={() => {
           if (!deleteMut.isPending) setDeletingProject(null);
         }}

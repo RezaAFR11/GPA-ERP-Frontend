@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Banknote, Lock, Play,
+  Banknote, Lock, Unlock, Play,
   CheckCircle2, PlusCircle, Download, FileText,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { hrisPayrollApi, hrisSalaryApi, hrisEmployeesApi } from "@/lib/api";
 import type { PayrollPeriod, PayrollRun, SalaryComponent } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useRole } from "@/lib/auth-context";
+import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
@@ -255,6 +257,9 @@ function SalaryModal({
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 export default function PayrollPage() {
   const qc = useQueryClient();
+  const { hasRole } = useRole();
+  const canManagePayroll = hasRole("SUPER_ADMIN", "MD");
+  const canPostPayroll = hasRole("SUPER_ADMIN", "MD", "FINANCE");
   const [selectedPeriod, setSelectedPeriod] = useState<PayrollPeriod | null>(null);
   const [slipRun,    setSlipRun]    = useState<PayrollRun | null>(null);
   const [showNew,    setShowNew]    = useState(false);
@@ -287,15 +292,32 @@ export default function PayrollPage() {
 
   const lockMut = useMutation({
     mutationFn: (id: number) => hrisPayrollApi.lockPeriod(id),
-    onSuccess:  () => {
+    onSuccess:  (res) => {
       qc.invalidateQueries({ queryKey: ["hris", "payroll", "periods"] });
       qc.invalidateQueries({ queryKey: ["hris", "payroll", "runs"] });
+      setSelectedPeriod(res.data);
+      toastSuccess("Periode payroll dikunci");
     },
+    onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal mengunci periode"),
+  });
+
+  const unlockMut = useMutation({
+    mutationFn: (id: number) => hrisPayrollApi.unlockPeriod(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["hris", "payroll", "periods"] });
+      setSelectedPeriod(res.data);
+      toastSuccess("Periode payroll dibuka kembali");
+    },
+    onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal membuka periode"),
   });
 
   const calcMut = useMutation({
     mutationFn: (id: number) => hrisPayrollApi.calculate(id),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ["hris", "payroll", "runs", selectedPeriod?.id] }),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ["hris", "payroll", "runs", selectedPeriod?.id] });
+      toastSuccess("Payroll berhasil dihitung");
+    },
+    onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal menghitung payroll"),
   });
 
   const postMut = useMutation({
@@ -303,7 +325,9 @@ export default function PayrollPage() {
     onSuccess:  (res) => {
       qc.invalidateQueries({ queryKey: ["hris", "payroll", "periods"] });
       setSelectedPeriod(res.data);
+      toastSuccess("Payroll berhasil diposting ke ERP");
     },
+    onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal memposting payroll"),
   });
 
   const [exportingBank, setExportingBank] = useState(false);
@@ -314,6 +338,8 @@ export default function PayrollPage() {
       const res = await hrisPayrollApi.exportBankCsv(selectedPeriod.id, bank);
       const MONTHS_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
       downloadBlob(res.data, `payroll-${MONTHS_ID[selectedPeriod.month]}-${selectedPeriod.year}-${bank}.csv`);
+    } catch (e: unknown) {
+      toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal mengunduh Bank CSV");
     } finally { setExportingBank(false); }
   }
 
@@ -325,6 +351,8 @@ export default function PayrollPage() {
       const res = await hrisPayrollApi.exportBpjs(selectedPeriod.id);
       const MONTHS_ID = ["","Januari","Februari","Maret","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
       downloadBlob(res.data, `bpjs-${MONTHS_ID[selectedPeriod.month]}-${selectedPeriod.year}.xlsx`);
+    } catch (e: unknown) {
+      toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal mengunduh laporan BPJS");
     } finally { setExportingBpjs(false); }
   }
 
@@ -333,8 +361,8 @@ export default function PayrollPage() {
       const year = selectedPeriod?.year ?? new Date().getFullYear();
       const res = await hrisPayrollApi.exportForm1721(employeeId, year);
       downloadBlob(res.data, `1721-A1-${employeeName.replace(/\s+/g, "-")}-${year}.xlsx`);
-    } catch {
-      // silently ignore
+    } catch (e: unknown) {
+      toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal mengunduh Form 1721-A1");
     }
   }
 
@@ -354,7 +382,7 @@ export default function PayrollPage() {
           </h1>
           <p className="text-sm text-gray-400 mt-0.5">Kalkulasi gaji, BPJS & PPh 21 per periode</p>
         </div>
-        <div className="flex gap-2">
+        {canManagePayroll && <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowSalary(true)}
             className="border border-gray-200 text-gray-700">
             <PlusCircle size={14} className="mr-1.5" /> Struktur Gaji
@@ -363,7 +391,7 @@ export default function PayrollPage() {
             className="bg-orange-600 hover:bg-orange-700 text-white">
             <PlusCircle size={14} className="mr-1.5" /> Buka Periode
           </Button>
-        </div>
+        </div>}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
@@ -419,7 +447,7 @@ export default function PayrollPage() {
                     <p className="text-xs text-gray-400">{runs.length} karyawan · {selectedPeriod.status}</p>
                   </div>
                   <div className="flex gap-2">
-                    {selectedPeriod.status === "OPEN" && (
+                    {canManagePayroll && selectedPeriod.status === "OPEN" && (
                       <>
                         <Button size="sm"
                           onClick={() => calcMut.mutate(selectedPeriod.id)}
@@ -436,16 +464,25 @@ export default function PayrollPage() {
                         </Button>
                       </>
                     )}
-                    {selectedPeriod.status === "LOCKED" && (
+                    {canPostPayroll && selectedPeriod.status === "LOCKED" && (
                       <Button size="sm"
                         onClick={() => postMut.mutate(selectedPeriod.id)}
-                        disabled={postMut.isPending}
+                        disabled={postMut.isPending || unlockMut.isPending}
                         className="bg-teal-600 hover:bg-teal-700 text-white">
                         <CheckCircle2 size={13} className="mr-1.5" />
                         {postMut.isPending ? "Memposting…" : "Posting ke ERP"}
                       </Button>
                     )}
-                    {(selectedPeriod.status === "LOCKED" || selectedPeriod.status === "POSTED") && (
+                    {canManagePayroll && selectedPeriod.status === "LOCKED" && (
+                      <Button size="sm" variant="ghost"
+                        onClick={() => unlockMut.mutate(selectedPeriod.id)}
+                        disabled={unlockMut.isPending || postMut.isPending}
+                        className="border border-amber-200 text-amber-700 hover:bg-amber-50">
+                        <Unlock size={13} className="mr-1.5" />
+                        {unlockMut.isPending ? "Membuka…" : "Buka Kunci"}
+                      </Button>
+                    )}
+                    {canPostPayroll && (selectedPeriod.status === "LOCKED" || selectedPeriod.status === "POSTED") && (
                       <>
                         <Button variant="ghost" size="sm"
                           onClick={() => handleBankExport("BCA")}
@@ -508,7 +545,9 @@ export default function PayrollPage() {
                           ? (
                               <tr>
                                 <td colSpan={9} className="px-4 py-12 text-center text-sm text-gray-400">
-                                  Klik <strong>Hitung</strong> untuk menjalankan kalkulasi payroll
+                                  {canManagePayroll
+                                    ? <>Klik <strong>Hitung</strong> untuk menjalankan kalkulasi payroll</>
+                                    : "Belum ada hasil payroll pada periode ini"}
                                 </td>
                               </tr>
                             )
@@ -554,11 +593,21 @@ export default function PayrollPage() {
       </div>
 
       {/* Modals */}
-      <NewPeriodModal open={showNew} onClose={() => setShowNew(false)}
-        onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "payroll", "periods"] })} />
-
-      <SalaryModal open={showSalary} onClose={() => setShowSalary(false)}
-        employees={empData?.items ?? []} components={components} />
+      {canManagePayroll && (
+        <NewPeriodModal
+          open={showNew}
+          onClose={() => setShowNew(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "payroll", "periods"] })}
+        />
+      )}
+      {canManagePayroll && (
+        <SalaryModal
+          open={showSalary}
+          onClose={() => setShowSalary(false)}
+          employees={empData?.items ?? []}
+          components={components}
+        />
+      )}
 
       <SlipModal run={slipRun} onClose={() => setSlipRun(null)} />
     </div>

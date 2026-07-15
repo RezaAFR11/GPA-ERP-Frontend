@@ -33,12 +33,21 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "holidays",     label: "Kalender Libur",   icon: Calendar       },
 ];
 
+const TIMEZONES = [
+  { value: "Asia/Jakarta", label: "WIB - Jakarta" },
+  { value: "Asia/Makassar", label: "WITA - Makassar / Berau" },
+  { value: "Asia/Jayapura", label: "WIT - Jayapura" },
+];
+
 // ── Lokasi Kerja Tab ──────────────────────────────────────────────────────────
 
 function WorkLocationsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", location_type: "home_office", latitude: "", longitude: "", radius_meters: "200" });
+  const [form, setForm] = useState({
+    name: "", location_type: "home_office", latitude: "", longitude: "",
+    radius_meters: "200", timezone_name: "Asia/Jakarta",
+  });
 
   const { data: locations = [], isLoading } = useQuery({
     queryKey: ["hris", "work-locations"],
@@ -52,12 +61,26 @@ function WorkLocationsTab() {
       latitude: parseFloat(form.latitude),
       longitude: parseFloat(form.longitude),
       radius_meters: parseInt(form.radius_meters),
+      timezone_name: form.timezone_name,
     }),
     onSuccess: () => {
       toastSuccess("Lokasi berhasil ditambahkan");
       qc.invalidateQueries({ queryKey: ["hris", "work-locations"] });
       setShowAdd(false);
-      setForm({ name: "", location_type: "home_office", latitude: "", longitude: "", radius_meters: "200" });
+      setForm({
+        name: "", location_type: "home_office", latitude: "", longitude: "",
+        radius_meters: "200", timezone_name: "Asia/Jakarta",
+      });
+    },
+    onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal"),
+  });
+
+  const timezoneMut = useMutation({
+    mutationFn: ({ id, timezone_name }: { id: number; timezone_name: string }) =>
+      hrisWorkLocationApi.update(id, { timezone_name }),
+    onSuccess: () => {
+      toastSuccess("Zona waktu berhasil diperbarui");
+      qc.invalidateQueries({ queryKey: ["hris", "work-locations"] });
     },
     onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal"),
   });
@@ -80,6 +103,7 @@ function WorkLocationsTab() {
               <th className="text-left py-2 font-medium">Nama</th>
               <th className="text-left py-2 font-medium">Tipe</th>
               <th className="text-left py-2 font-medium">Koordinat</th>
+              <th className="text-left py-2 font-medium">Zona Waktu</th>
               <th className="text-right py-2 font-medium">Radius</th>
               <th className="text-right py-2 font-medium">Status</th>
             </tr>
@@ -101,6 +125,19 @@ function WorkLocationsTab() {
                 <td className="py-2.5 text-gray-500 font-mono text-[11px]">
                   {Number(loc.latitude).toFixed(5)}, {Number(loc.longitude).toFixed(5)}
                 </td>
+                <td className="py-2.5">
+                  <select
+                    value={loc.timezone_name}
+                    disabled={timezoneMut.isPending}
+                    onChange={(e) => timezoneMut.mutate({ id: loc.id, timezone_name: e.target.value })}
+                    className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600"
+                    aria-label={`Zona waktu ${loc.name}`}
+                  >
+                    {TIMEZONES.map((timezone) => (
+                      <option key={timezone.value} value={timezone.value}>{timezone.label}</option>
+                    ))}
+                  </select>
+                </td>
                 <td className="py-2.5 text-right text-gray-600">{loc.radius_meters}m</td>
                 <td className="py-2.5 text-right">
                   <Badge className={loc.is_active ? "bg-green-50 text-green-700 border-green-200 text-[10px]" : "bg-gray-50 text-gray-500 border-gray-200 text-[10px]"}>
@@ -110,7 +147,7 @@ function WorkLocationsTab() {
               </tr>
             ))}
             {locations.length === 0 && (
-              <tr><td colSpan={5} className="py-8 text-center text-sm text-gray-400">Belum ada lokasi kerja</td></tr>
+              <tr><td colSpan={6} className="py-8 text-center text-sm text-gray-400">Belum ada lokasi kerja</td></tr>
             )}
           </tbody>
         </table>
@@ -149,6 +186,18 @@ function WorkLocationsTab() {
             <input type="number" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               value={form.radius_meters} onChange={e => setForm(f => ({...f, radius_meters: e.target.value}))} />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Zona Waktu</label>
+            <select
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+              value={form.timezone_name}
+              onChange={e => setForm(f => ({ ...f, timezone_name: e.target.value }))}
+            >
+              {TIMEZONES.map((timezone) => (
+                <option key={timezone.value} value={timezone.value}>{timezone.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button size="sm" onClick={() => setShowAdd(false)}>Batal</Button>
             <Button variant="primary" size="sm" loading={createMut.isPending}
@@ -166,7 +215,10 @@ function WorkLocationsTab() {
 function LeaveTypesTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ code: "", name: "", max_days: "", is_paid: true, requires_approval: true });
+  const [form, setForm] = useState({
+    code: "", name: "", max_days: "", is_paid: true, requires_approval: true,
+    category: "annual" as LeaveType["category"], requires_doctor_cert: false,
+  });
 
   const { data: types = [], isLoading } = useQuery({
     queryKey: ["hris", "leave-types"],
@@ -180,12 +232,17 @@ function LeaveTypesTab() {
       max_days_per_year: form.max_days ? parseInt(form.max_days) : null,
       is_paid: form.is_paid,
       requires_approval: form.requires_approval,
+      category: form.category,
+      requires_doctor_cert: form.requires_doctor_cert,
     }),
     onSuccess: () => {
       toastSuccess("Tipe cuti berhasil ditambahkan");
       qc.invalidateQueries({ queryKey: ["hris", "leave-types"] });
       setShowAdd(false);
-      setForm({ code: "", name: "", max_days: "", is_paid: true, requires_approval: true });
+      setForm({
+        code: "", name: "", max_days: "", is_paid: true, requires_approval: true,
+        category: "annual", requires_doctor_cert: false,
+      });
     },
     onError: (e: unknown) => toastError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Gagal"),
   });
@@ -217,7 +274,12 @@ function LeaveTypesTab() {
             {types.map((t) => (
               <tr key={t.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-mono text-xs text-gray-600">{t.code}</td>
-                <td className="py-2.5 font-medium text-gray-800">{t.name}</td>
+                <td className="py-2.5">
+                  <p className="font-medium text-gray-800">{t.name}</p>
+                  <p className="text-[10px] text-gray-400 capitalize">
+                    {t.category}{t.requires_doctor_cert ? " · surat dokter" : ""}
+                  </p>
+                </td>
                 <td className="py-2.5 text-right text-gray-600">{t.max_days_per_year ?? "∞"}</td>
                 <td className="py-2.5 text-center">
                   {t.is_paid ? <Check size={14} className="text-teal-600 mx-auto" /> : <span className="text-gray-300">—</span>}
@@ -255,6 +317,28 @@ function LeaveTypesTab() {
             <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} placeholder="cth: Cuti Bersama" />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Kategori</label>
+            <select
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+              value={form.category}
+              onChange={e => {
+                const category = e.target.value as LeaveType["category"];
+                setForm(f => ({
+                  ...f,
+                  category,
+                  requires_doctor_cert: category === "sick" ? true : f.requires_doctor_cert,
+                }));
+              }}
+            >
+              <option value="annual">Tahunan</option>
+              <option value="sick">Sakit</option>
+              <option value="maternity">Melahirkan</option>
+              <option value="paternity">Pendamping Melahirkan</option>
+              <option value="unpaid">Tanpa Gaji</option>
+              <option value="other">Lainnya</option>
+            </select>
+          </div>
           <div className="flex gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={form.is_paid} onChange={e => setForm(f => ({...f, is_paid: e.target.checked}))} className="rounded" />
@@ -265,6 +349,15 @@ function LeaveTypesTab() {
               Perlu persetujuan
             </label>
           </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.requires_doctor_cert}
+              onChange={e => setForm(f => ({ ...f, requires_doctor_cert: e.target.checked }))}
+              className="rounded"
+            />
+            Wajib melampirkan surat dokter
+          </label>
           <div className="flex justify-end gap-2 pt-2">
             <Button size="sm" onClick={() => setShowAdd(false)}>Batal</Button>
             <Button variant="primary" size="sm" loading={createMut.isPending}
@@ -279,7 +372,7 @@ function LeaveTypesTab() {
 
 // ── Komponen Gaji Tab ─────────────────────────────────────────────────────────
 
-function SalaryComponentsTab() {
+function SalaryComponentsTab({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ code: "", name: "", component_type: "ALLOWANCE", is_taxable: false });
@@ -317,9 +410,11 @@ function SalaryComponentsTab() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <p className="text-sm text-gray-500">Daftar komponen penggajian (tunjangan, potongan, BPJS, pajak)</p>
-        <Button size="sm" variant="primary" icon={<Plus size={13} />}
-          className="bg-teal-700 hover:bg-teal-600 border-teal-700"
-          onClick={() => setShowAdd(true)}>Tambah Komponen</Button>
+        {canManage && (
+          <Button size="sm" variant="primary" icon={<Plus size={13} />}
+            className="bg-teal-700 hover:bg-teal-600 border-teal-700"
+            onClick={() => setShowAdd(true)}>Tambah Komponen</Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -833,14 +928,16 @@ function HolidayCalendarTab() {
 
 export default function HrisSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("locations");
-  const { isHR, isSuperAdmin } = useRole();
+  const { hasRole } = useRole();
+  const canAccessSettings = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canManageSalary = hasRole("SUPER_ADMIN", "MD");
 
-  if (!isHR && !isSuperAdmin) {
+  if (!canAccessSettings) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
         <AlertTriangle size={32} className="text-amber-400" />
         <p className="text-gray-600 font-medium">Akses ditolak</p>
-        <p className="text-sm text-gray-400">Halaman ini hanya untuk HR / Super Admin</p>
+        <p className="text-sm text-gray-400">Halaman ini hanya untuk HR, MD, atau Super Admin</p>
       </div>
     );
   }
@@ -887,7 +984,7 @@ export default function HrisSettingsPage() {
           <div className="p-4">
             {activeTab === "locations"   && <WorkLocationsTab />}
             {activeTab === "leave-types" && <LeaveTypesTab />}
-            {activeTab === "salary"      && <SalaryComponentsTab />}
+            {activeTab === "salary"      && <SalaryComponentsTab canManage={canManageSalary} />}
             {activeTab === "departments" && <DepartmentsTab />}
             {activeTab === "grades"      && <GradesTab />}
             {activeTab === "work-groups" && <WorkGroupsTab />}

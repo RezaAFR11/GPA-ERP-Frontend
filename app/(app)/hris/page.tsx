@@ -12,39 +12,31 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { hrisDashboardApi, hrisEmployeesApi } from "@/lib/api";
+import { hrisDashboardApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { cn, fmtDate } from "@/lib/utils";
 
 const TIPE_COLORS_PIE = ["#0D9488", "#2563EB", "#EA580C"];
 
 export default function HrisDashboardPage() {
   const now = new Date();
+  const { canAccessMenu } = useAuth();
   const { data: stats, isLoading } = useQuery({
     queryKey: ["hris", "dashboard", "stats", now.getFullYear(), now.getMonth() + 1],
     queryFn: () => hrisDashboardApi.getStats(now.getFullYear(), now.getMonth() + 1).then((r) => r.data),
   });
 
-  // Fallback: also fetch employee list for employment type pie chart
-  const { data: empData, isLoading: empLoad } = useQuery({
-    queryKey: ["hris", "employees", { limit: 500 }],
-    queryFn: () => hrisEmployeesApi.list({ limit: 500 }).then((r) => r.data),
-  });
-
-  const employees = empData?.items ?? [];
-  const tetap     = employees.filter((e) => e.tipe === "Tetap").length;
-  const pkwt      = employees.filter((e) => e.tipe === "PKWT").length;
-  const outsource = employees.filter((e) => e.tipe === "Outsource").length;
   const tipeData  = [
-    { name: "Tetap",     value: tetap     },
-    { name: "PKWT",      value: pkwt      },
-    { name: "Outsource", value: outsource },
+    { name: "Tetap",     value: stats?.employment_type_counts.Tetap ?? 0     },
+    { name: "PKWT",      value: stats?.employment_type_counts.PKWT ?? 0      },
+    { name: "Outsource", value: stats?.employment_type_counts.Outsource ?? 0 },
   ].filter((d) => d.value > 0);
 
   const quickLinks = [
-    { href: "/hris/employees",  label: "Data Karyawan",    icon: Users,        color: "teal"   },
-    { href: "/hris/attendance", label: "Absensi & Lembur", icon: Fingerprint,  color: "purple" },
-    { href: "/hris/leave",      label: "Cuti & Izin",      icon: CalendarDays, color: "blue"   },
-  ];
+    { href: "/hris/employees",  menuKey: "hris_employees",  label: "Data Karyawan",    icon: Users,        color: "teal"   },
+    { href: "/hris/attendance", menuKey: "hris_attendance", label: "Absensi & Lembur", icon: Fingerprint,  color: "purple" },
+    { href: "/hris/leave",      menuKey: "hris_leave",      label: "Cuti & Izin",      icon: CalendarDays, color: "blue"   },
+  ].filter((item) => canAccessMenu(item.menuKey));
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -182,16 +174,16 @@ export default function HrisDashboardPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {(stats?.pkwt_expiring_list ?? []).map((emp) => (
-                  <tr key={emp.employee_id} className="hover:bg-gray-50">
+                  <tr key={emp.id} className="hover:bg-gray-50">
                     <td className="px-5 py-2.5 font-mono text-xs text-gray-500">{emp.employee_no}</td>
                     <td className="px-5 py-2.5 font-medium text-gray-800">{emp.full_name}</td>
                     <td className="px-5 py-2.5 text-right text-gray-600">{fmtDate(emp.end_date)}</td>
                     <td className="px-5 py-2.5 text-right">
                       <Badge className={cn("text-[10px]",
-                        emp.days_remaining <= 30 ? "bg-red-50 text-red-700 border-red-200" :
-                        emp.days_remaining <= 60 ? "bg-orange-50 text-orange-700 border-orange-200" :
+                        emp.days_left <= 30 ? "bg-red-50 text-red-700 border-red-200" :
+                        emp.days_left <= 60 ? "bg-orange-50 text-orange-700 border-orange-200" :
                                                     "bg-amber-50 text-amber-700 border-amber-200")}>
-                        {emp.days_remaining} hari
+                        {emp.days_left} hari
                       </Badge>
                     </td>
                   </tr>
@@ -241,7 +233,7 @@ export default function HrisDashboardPage() {
             <h3 className="text-sm font-semibold text-gray-900">Komposisi Tipe Karyawan</h3>
           </div>
           <div className="p-5 flex items-center justify-center">
-            {empLoad ? <Skeleton className="h-48 w-full" /> : tipeData.length === 0 ? (
+            {isLoading ? <Skeleton className="h-48 w-full" /> : tipeData.length === 0 ? (
               <p className="text-sm text-gray-400">Belum ada data karyawan</p>
             ) : (
               <ResponsiveContainer width="100%" height={200}>

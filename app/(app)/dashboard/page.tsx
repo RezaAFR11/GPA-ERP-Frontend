@@ -9,8 +9,8 @@ import {
   ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import Link from "next/link";
-import { projectsApi, expensesApi, receivablesApi } from "@/lib/api";
-import { formatCurrency, formatCompact, pct, fmtDate, burnTailwind, getCurrencySymbol } from "@/lib/utils";
+import { projectsApi, expensesApi, reportsApi } from "@/lib/api";
+import { formatCurrency, formatCompact, pct, fmtDate, burnTailwind, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
 import { Card, CardHeader } from "@/components/ui/card";
 import { KPISkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { ExpenseStatusBadge } from "@/components/ui/badge";
@@ -31,9 +31,17 @@ function getLast6Months(): { key: string; label: string }[] {
   return result;
 }
 
-function moneyValue(value: number | string | null | undefined): number {
-  const num = typeof value === "string" ? Number(value) : value ?? 0;
-  return Number.isFinite(num) ? num : 0;
+async function loadAllActiveProjects(): Promise<Project[]> {
+  const items: Project[] = [];
+  let skip = 0;
+  while (true) {
+    const response = await projectsApi.list({
+      status: "active", archived: false, skip, limit: 500,
+    });
+    items.push(...response.data.items);
+    if (items.length >= response.data.total || response.data.items.length === 0) return items;
+    skip += response.data.items.length;
+  }
 }
 
 // ── Custom tooltip ────────────────────────────────────────────────────────────
@@ -47,7 +55,7 @@ function ChartTooltip({ active, payload, label }: any) {
           <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
           <span className="text-gray-400 capitalize">{p.name}:</span>
           <span className="font-mono font-medium">
-            {p.name === "margin" ? `${p.value}%` : `${getCurrencySymbol()}${p.value}M`}
+            {p.name === "margin" ? `${p.value}%` : `${getCurrencySymbol(getStoredCurrency())}${p.value}M`}
           </span>
         </p>
       ))}
@@ -120,25 +128,23 @@ function BurnBar({ project }: { project: Project }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { data: projects = [], isLoading: projLoad } = useQuery({
+  const reportingCurrency = getStoredCurrency();
+  const reportingSymbol = getCurrencySymbol(reportingCurrency);
+  const { data: allProjects = [], isLoading: projLoad } = useQuery({
     queryKey: ["projects", "dashboard", "active"],
-    queryFn: () => projectsApi.list({ status: "active", archived: false, limit: 500 }).then((r) => r.data.items),
+    queryFn: loadAllActiveProjects,
   });
+  const projects = allProjects.filter((project) => (project.currency || "IDR") === reportingCurrency);
 
-  const { data: recentExpenses = [], isLoading: expLoad } = useQuery({
-    queryKey: ["expenses", "recent"],
-    queryFn: () => expensesApi.list({ limit: 8 }).then((r) => r.data.items),
+  const { data: recentExpenseData, isLoading: expLoad } = useQuery({
+    queryKey: ["expenses", "recent", reportingCurrency],
+    queryFn: () => expensesApi.list({ currency: reportingCurrency, limit: 100 }).then((r) => r.data),
   });
-
-  const { data: allExpenses = [] } = useQuery({
-    queryKey: ["expenses", "chart"],
-    queryFn: () => expensesApi.list({ limit: 500 }).then((r) => r.data.items),
+  const { data: dashboardTrend } = useQuery({
+    queryKey: ["reports", "dashboard-trend", reportingCurrency],
+    queryFn: () => reportsApi.dashboardTrend(reportingCurrency).then((r) => r.data),
   });
-
-  const { data: allReceivables = [] } = useQuery({
-    queryKey: ["receivables", "chart"],
-    queryFn: () => receivablesApi.list().then((r) => r.data.items),
-  });
+  const recentExpenses = (recentExpenseData?.items ?? []).slice(0, 8);
 
   // ── Aggregate KPIs ──────────────────────────────────────────────────────────
   const totalBudget    = projects.reduce((s, p) => s + (Number(p.contract_value) || 0), 0);
@@ -147,23 +153,14 @@ export default function DashboardPage() {
   const marginPct      = totalRevenue > 0
     ? pct(totalRevenue - totalCommitted, totalRevenue)
     : 0;
-  const pendingExpenses = recentExpenses.filter((e) =>
-    ["submitted", "verified"].includes(e.status)
-  ).length;
+  const pendingExpenses = dashboardTrend?.pending_expenses ?? 0;
 
   // ── Margin trend chart (computed from real data) ─────────────────────────────
   const months = getLast6Months();
+  const trendByMonth = new Map((dashboardTrend?.months ?? []).map((row) => [row.month, row]));
   const marginTrend = months.map(({ key, label }) => {
-    const monthSpent = allExpenses
-      .filter((e) =>
-        e.created_at.slice(0, 7) === key &&
-        !["draft", "rejected"].includes(e.status)
-      )
-      .reduce((s, e) => s + moneyValue(e.amount), 0);
-
-    const monthRevenue = allReceivables
-      .filter((r) => r.created_at.slice(0, 7) === key && r.status === "confirmed")
-      .reduce((s, r) => s + moneyValue(r.amount), 0);
+    const monthSpent = trendByMonth.get(key)?.spent ?? 0;
+    const monthRevenue = trendByMonth.get(key)?.revenue ?? 0;
 
     const rev  = parseFloat((monthRevenue / 1_000_000).toFixed(1));
     const spent = parseFloat((monthSpent   / 1_000_000).toFixed(1));
@@ -176,20 +173,12 @@ export default function DashboardPage() {
   const thisMonth = months[5].key;
   const lastMonth = months[4].key;
 
-  const thisMonthCommitted = allExpenses
-    .filter((e) => e.created_at.slice(0, 7) === thisMonth && !["draft","rejected"].includes(e.status))
-    .reduce((s, e) => s + moneyValue(e.amount), 0);
-  const lastMonthCommitted = allExpenses
-    .filter((e) => e.created_at.slice(0, 7) === lastMonth && !["draft","rejected"].includes(e.status))
-    .reduce((s, e) => s + moneyValue(e.amount), 0);
+  const thisMonthCommitted = trendByMonth.get(thisMonth)?.spent ?? 0;
+  const lastMonthCommitted = trendByMonth.get(lastMonth)?.spent ?? 0;
   const committedDelta = thisMonthCommitted - lastMonthCommitted;
 
-  const thisMonthRevenue = allReceivables
-    .filter((r) => r.created_at.slice(0, 7) === thisMonth && r.status === "confirmed")
-    .reduce((s, r) => s + moneyValue(r.amount), 0);
-  const lastMonthRevenue = allReceivables
-    .filter((r) => r.created_at.slice(0, 7) === lastMonth && r.status === "confirmed")
-    .reduce((s, r) => s + moneyValue(r.amount), 0);
+  const thisMonthRevenue = trendByMonth.get(thisMonth)?.revenue ?? 0;
+  const lastMonthRevenue = trendByMonth.get(lastMonth)?.revenue ?? 0;
   const revenueDelta = thisMonthRevenue - lastMonthRevenue;
 
   const hasChartData = marginTrend.some((d) => d.revenue > 0 || d.spent > 0);
@@ -199,7 +188,7 @@ export default function DashboardPage() {
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div>
         <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Cost Control · All Projects</p>
+        <p className="text-sm text-gray-400 mt-0.5">Cost Control · {reportingCurrency} projects</p>
       </div>
 
       {/* ── KPI Cards ────────────────────────────────────────────────────── */}
@@ -210,30 +199,30 @@ export default function DashboardPage() {
           <>
             <KPICard
               title="Contract Value"
-              value={`${getCurrencySymbol()}${formatCompact(totalBudget)}`}
-              sub={`${projects.length} active project${projects.length !== 1 ? "s" : ""}`}
+              value={`${reportingSymbol}${formatCompact(totalBudget)}`}
+              sub={`${projects.length} active ${reportingCurrency} project${projects.length !== 1 ? "s" : ""}`}
               icon={Wallet}
               color="bg-primary"
             />
             <KPICard
               title="Total Committed"
-              value={`${getCurrencySymbol()}${formatCompact(totalCommitted)}`}
+              value={`${reportingSymbol}${formatCompact(totalCommitted)}`}
               sub={`${pct(totalCommitted, totalBudget).toFixed(0)}% of contract`}
               icon={Layers}
               color="bg-amber-500"
               trend={committedDelta !== 0
-                ? `${committedDelta > 0 ? "+" : ""}${getCurrencySymbol()}${formatCompact(Math.abs(committedDelta))} vs last month`
+                ? `${committedDelta > 0 ? "+" : ""}${reportingSymbol}${formatCompact(Math.abs(committedDelta))} vs last month`
                 : undefined}
               trendUp={committedDelta <= 0}
             />
             <KPICard
               title="Revenue (AR)"
-              value={`${getCurrencySymbol()}${formatCompact(totalRevenue)}`}
+              value={`${reportingSymbol}${formatCompact(totalRevenue)}`}
               sub="Confirmed billings"
               icon={TrendingUp}
               color="bg-green-600"
               trend={revenueDelta !== 0
-                ? `${revenueDelta > 0 ? "+" : ""}${getCurrencySymbol()}${formatCompact(Math.abs(revenueDelta))} vs last month`
+                ? `${revenueDelta > 0 ? "+" : ""}${reportingSymbol}${formatCompact(Math.abs(revenueDelta))} vs last month`
                 : undefined}
               trendUp={revenueDelta >= 0}
             />
@@ -292,7 +281,7 @@ export default function DashboardPage() {
                     orientation="left"
                     tick={{ fontSize: 11, fill: "#9CA3AF" }}
                     axisLine={false} tickLine={false}
-                    tickFormatter={(v) => `${getCurrencySymbol()}${v}M`}
+                    tickFormatter={(v) => `${reportingSymbol}${v}M`}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Line
@@ -391,7 +380,7 @@ export default function DashboardPage() {
                       {exp.cost_code?.code}
                     </td>
                     <td className="td text-right num font-semibold text-gray-900">
-                      {formatCurrency(exp.amount)}
+                      {formatCurrency(exp.amount, reportingSymbol)}
                     </td>
                     <td className="td">
                       <ExpenseStatusBadge status={exp.status} />

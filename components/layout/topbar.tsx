@@ -30,6 +30,8 @@ interface TopbarProps {
 export function Topbar({ onNewExpense, onSearchOpen, onMenuOpen }: TopbarProps) {
   const pathname = usePathname();
   const { canAccessMenu } = useAuth();
+  const canSearch = ["project_command", "spending", "action_center", "revenue_ar", "legal", "inventory"]
+    .some((key) => canAccessMenu(key));
 
   // Build breadcrumb label: find longest matching key
   const crumbKey = Object.keys(PAGE_CRUMBS)
@@ -78,7 +80,7 @@ export function Topbar({ onNewExpense, onSearchOpen, onMenuOpen }: TopbarProps) 
       </span>
 
       {/* ── Search trigger ────────────────────────────────────────────────────── */}
-      <div className="flex-1 hidden sm:flex items-center max-w-[360px]">
+      {canSearch && <div className="flex-1 hidden sm:flex items-center max-w-[360px]">
         <button
           onClick={onSearchOpen}
           className={cn(
@@ -94,18 +96,18 @@ export function Topbar({ onNewExpense, onSearchOpen, onMenuOpen }: TopbarProps) 
             ⌘K
           </kbd>
         </button>
-      </div>
+      </div>}
 
       {/* ── Right actions ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 ml-auto shrink-0">
         {/* Mobile search icon */}
-        <button
+        {canSearch && <button
           onClick={onSearchOpen}
           className="sm:hidden p-2 rounded-lg text-[#5E7186] hover:bg-[#F8FAF9] transition-colors"
           aria-label="Search"
         >
           <Search size={18} />
-        </button>
+        </button>}
 
         {/* Notification bell — bell dot colour changed to gold via CSS var */}
         <NotificationBell />

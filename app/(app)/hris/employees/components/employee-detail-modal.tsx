@@ -11,9 +11,8 @@ import { hrisEmployeesApi, hrisDepartmentsApi, hrisJobGradesApi, hrisWorkLocatio
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { useRole } from "@/lib/auth-context";
 import { cn, fmtDate } from "@/lib/utils";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import type { Employee, EmpDocType, EmployeeDataChangeRequest } from "@/lib/types";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace("/api", "") ?? "http://localhost:8000";
 
 const TIPE_COLORS: Record<string, string> = {
   Tetap:     "bg-teal-50 text-teal-700 border-teal-200",
@@ -112,7 +111,14 @@ function empToForm(d: Employee): EditForm {
 
 const ROLES = ["WORKER", "STAFF", "GA", "HR", "FINANCE", "COST_CONTROL", "PM", "PROJECT_CONTROL", "MD"] as const;
 
-function AccountSection({ employee, onCreated }: { employee: Employee; onCreated: () => void }) {
+function AccountSection({
+  employee, onCreated, canCreate, allowedRoles,
+}: {
+  employee: Employee;
+  onCreated: () => void;
+  canCreate: boolean;
+  allowedRoles: readonly string[];
+}) {
   const [role, setRole] = useState("WORKER");
   const [tempPass, setTempPass] = useState<string | null>(null);
   const [linkUserId, setLinkUserId] = useState("");
@@ -192,7 +198,7 @@ function AccountSection({ employee, onCreated }: { employee: Employee; onCreated
               </div>
             )}
             {/* Option 2: create a brand-new account for this employee */}
-            <div>
+            {canCreate && <div>
               <p className="text-[11px] text-gray-400 mb-1">Buat akun baru</p>
               {employee.email ? (
                 <div className="flex items-center gap-2">
@@ -201,7 +207,7 @@ function AccountSection({ employee, onCreated }: { employee: Employee; onCreated
                     value={role}
                     onChange={e => setRole(e.target.value)}
                   >
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    {allowedRoles.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                   <Button size="sm" onClick={() => mut.mutate()} disabled={mut.isPending}>
                     {mut.isPending ? "..." : "Buat Akun"}
@@ -210,7 +216,7 @@ function AccountSection({ employee, onCreated }: { employee: Employee; onCreated
               ) : (
                 <span className="text-xs text-amber-600">Isi email karyawan dulu</span>
               )}
-            </div>
+            </div>}
           </div>
         )}
       </div>
@@ -223,8 +229,12 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
   const [docType, setDocType] = useState<EmpDocType>("KTP");
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<EditForm>(empToForm(emp));
-  const { isSuperAdmin, isHR } = useRole();
-  const canEdit = isSuperAdmin || isHR;
+  const { hasRole } = useRole();
+  const canEdit = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canLinkAccounts = hasRole("SUPER_ADMIN", "MD", "GA", "HR", "PM", "PROJECT_CONTROL");
+  const canCreateAccounts = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
+  const canAssignElevatedRoles = hasRole("SUPER_ADMIN", "MD");
+  const allowedAccountRoles = canAssignElevatedRoles ? ROLES : (["WORKER", "STAFF"] as const);
   const qc = useQueryClient();
 
   const { data: detail, isLoading } = useQuery({
@@ -351,9 +361,11 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
   const d = detail ?? emp;
 
   const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
-    { key: "profile",      label: "Profil",           icon: User },
-    { key: "documents",    label: "Dokumen",          icon: FileText },
-    { key: "data-changes", label: "Permintaan Data",  icon: RefreshCw },
+    { key: "profile", label: "Profil", icon: User },
+    ...(canEdit ? [
+      { key: "documents" as Tab, label: "Dokumen", icon: FileText },
+      { key: "data-changes" as Tab, label: "Permintaan Data", icon: RefreshCw },
+    ] : []),
   ];
 
   const statusLabel: Record<string, string> = {
@@ -445,7 +457,14 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
           <InfoRow label="Tanggal Selesai" value={d.end_date  ? fmtDate(d.end_date)  : null} />
           <InfoRow label="Departemen"      value={d.department?.name} />
           <InfoRow label="Grade"           value={d.grade ? `${d.grade.name} (Level ${d.grade.level})` : null} />
-          <AccountSection employee={d} onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "employees"] })} />
+          {canLinkAccounts && (
+            <AccountSection
+              employee={d}
+              canCreate={canCreateAccounts}
+              allowedRoles={allowedAccountRoles}
+              onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "employees"] })}
+            />
+          )}
           <InfoRow label="Lokasi Absensi"  value={(d as any).work_location?.name ?? null} />
           <p className="text-[10px] font-semibold tracking-widest text-teal-600 uppercase mb-2 mt-5">BPJS & Bank</p>
           <InfoRow label="BPJS TK No."  value={d.bpjs_tk_no} />
@@ -610,15 +629,14 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
                       <p className="text-sm font-medium text-gray-900">{label}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{fmtDate(doc.uploaded_at)}</p>
                     </div>
-                    <a
-                      href={`${BASE_URL}${doc.file_url}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openAuthenticatedFile(doc.file_url).catch(() => toastError("Gagal membuka dokumen"))}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-600 hover:text-teal-700 transition-colors"
                     >
                       <ExternalLink size={12} />
                       Buka
-                    </a>
+                    </button>
                   </div>
                 );
               })}

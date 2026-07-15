@@ -1,32 +1,25 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   User, Lock, Users, Shield, Eye, EyeOff,
-  Plus, CheckCircle2, XCircle, SlidersHorizontal,
-  ChevronRight, Trash2, X, Check, Pencil, Mail, KeyRound, Copy, IdCard,
+  Plus, CheckCircle2, XCircle,
+  X, Pencil, Mail, KeyRound, Copy, IdCard,
 } from "lucide-react";
 import { useAuth, useRole } from "@/lib/auth-context";
-import { usersApi, vaultApi, costCodesApi, costCentresApi, legalApi, hrisEmployeesApi } from "@/lib/api";
+import { usersApi, legalApi, hrisEmployeesApi, settingsApi } from "@/lib/api";
 import { getBranding, setBranding, type Branding } from "@/lib/branding";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  CURRENCIES, cn, ROLE_LABEL, getErrorMessage, formatCurrency,
+  CURRENCIES, cn, ROLE_LABEL, getErrorMessage,
   getStoredCurrency, setStoredCurrency, type CurrencyCode,
 } from "@/lib/utils";
 import { fmtDate } from "@/lib/utils";
-import type {
-  ApprovalRule, ApprovalRuleCreate, CostCentreCreate, CostCode, CostCodeCreate,
-  CostCodeCategory, RoleName, User as UserType, UserCreate,
-} from "@/lib/types";
-import axios from "axios";
+import type { RoleName, User as UserType, UserCreate } from "@/lib/types";
 
 const TABS = ["Profile", "Security", "Users", "Email"] as const;
 type Tab = typeof TABS[number];
-
-const COST_CODE_CATS: CostCodeCategory[] = ["Direct", "Site", "Personnel", "Overhead", "Other"];
-const ROLES: RoleName[] = ["SUPER_ADMIN", "MD", "PM", "COST_CONTROL", "FINANCE", "GA", "STAFF", "WORKER"];
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ msg, ok }: { msg: string; ok: boolean }) {
@@ -43,6 +36,7 @@ function Toast({ msg, ok }: { msg: string; ok: boolean }) {
 
 // ─── Profile tab ─────────────────────────────────────────────────────────────
 function ProfileTab() {
+  const qc = useQueryClient();
   const { user, refreshUser } = useAuth();
   const { isSuperAdmin } = useRole();
   const [name, setName]   = useState(user?.full_name ?? "");
@@ -50,6 +44,18 @@ function ProfileTab() {
   const [branding, setBrandingState] = useState<Branding>(() => getBranding());
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const canManageSignature = isSuperAdmin || user?.role.name === "MD";
+
+  const { data: sharedBranding } = useQuery({
+    queryKey: ["workspace-branding"],
+    queryFn: () => settingsApi.branding().then((response) => response.data),
+    enabled: isSuperAdmin,
+  });
+
+  useEffect(() => {
+    if (!sharedBranding) return;
+    setBrandingState(sharedBranding);
+    setBranding(sharedBranding);
+  }, [sharedBranding]);
 
   const { data: sigStatus } = useQuery({
     queryKey: ["md-signature-status"],
@@ -59,7 +65,20 @@ function ProfileTab() {
 
   const uploadSignature = useMutation({
     mutationFn: (file: File) => legalApi.uploadMdSignature(file),
-    onSuccess: () => showToast("MD signature uploaded", true),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["md-signature-status"] });
+      showToast("MD signature uploaded", true);
+    },
+    onError: (e) => showToast(getErrorMessage(e), false),
+  });
+
+  const saveBranding = useMutation({
+    mutationFn: () => settingsApi.updateBranding(branding),
+    onSuccess: ({ data }) => {
+      setBranding(data);
+      qc.setQueryData(["workspace-branding"], data);
+      showToast("Header updated", true);
+    },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
 
@@ -130,8 +149,10 @@ function ProfileTab() {
       </Card>
 
       <Card>
-        <h2 className="text-sm font-semibold text-gray-900 mb-1">Currency preference</h2>
-        <p className="text-xs text-gray-400 mb-4">Used as the default for dashboards, reports, and new transactions.</p>
+        <h2 className="text-sm font-semibold text-gray-900 mb-1">Reporting currency</h2>
+        <p className="text-xs text-gray-400 mb-4">
+          Filters dashboard and report totals and becomes the default for new projects. Existing values are never relabelled or converted.
+        </p>
         <select
           value={currency}
           onChange={(e) => {
@@ -146,7 +167,7 @@ function ProfileTab() {
         </select>
       </Card>
 
-      <Card>
+      {isSuperAdmin && <Card>
         <h2 className="text-sm font-semibold text-gray-900 mb-1">Header branding</h2>
         <p className="text-xs text-gray-400 mb-4">Controls the logo text and sidebar header.</p>
         <div className="grid grid-cols-3 gap-3">
@@ -176,11 +197,11 @@ function ProfileTab() {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button type="button" size="sm" onClick={() => { setBranding(branding); showToast("Header updated", true); }}>
-            Save header
+          <Button type="button" size="sm" onClick={() => saveBranding.mutate()} disabled={saveBranding.isPending}>
+            {saveBranding.isPending ? "Savingâ€¦" : "Save header"}
           </Button>
         </div>
-      </Card>
+      </Card>}
 
       {canManageSignature && (
         <Card>
@@ -330,12 +351,13 @@ function SecurityTab() {
 interface EditUserModalProps {
   user: UserType;
   roles: { id: number; name: string }[];
+  isSelf: boolean;
   onClose: () => void;
   onSave: (data: { role_id?: number; is_active?: boolean; full_name?: string }) => void;
   isPending: boolean;
 }
 
-function EditUserModal({ user, roles, onClose, onSave, isPending }: EditUserModalProps) {
+function EditUserModal({ user, roles, isSelf, onClose, onSave, isPending }: EditUserModalProps) {
   const [roleId,    setRoleId]    = useState(user.role?.id ?? 0);
   const [isActive,  setIsActive]  = useState(user.is_active);
   const [fullName,  setFullName]  = useState(user.full_name);
@@ -392,6 +414,7 @@ function EditUserModal({ user, roles, onClose, onSave, isPending }: EditUserModa
           <select
             value={roleId}
             onChange={(e) => setRoleId(Number(e.target.value))}
+            disabled={isSelf}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
           >
             {roles.map((r) => (
@@ -411,8 +434,9 @@ function EditUserModal({ user, roles, onClose, onSave, isPending }: EditUserModa
           <button
             type="button"
             onClick={() => setIsActive((v: boolean) => !v)}
+            disabled={isSelf}
             className={cn(
-              "relative w-10 h-5.5 rounded-full transition-colors shrink-0",
+              "relative w-10 h-5.5 rounded-full transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
               isActive ? "bg-green-500" : "bg-gray-300"
             )}
             style={{ height: "22px", width: "40px" }}
@@ -443,12 +467,13 @@ function EditUserModal({ user, roles, onClose, onSave, isPending }: EditUserModa
 // ─── Users tab (Super Admin only) ─────────────────────────────────────────────
 function UsersTab() {
   const qc = useQueryClient();
+  const { user: currentUser } = useAuth();
   const [toast,      setToast]    = useState<{ msg: string; ok: boolean } | null>(null);
   const [showForm,   setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [resetResult, setResetResult] = useState<{ name: string; password: string } | null>(null);
   const [newUser,    setNewUser]  = useState<UserCreate>({
-    email: "", password: "", full_name: "", role_id: 3,
+    email: "", password: "", full_name: "", role_id: 0,
   });
 
   function showToast(msg: string, ok: boolean) {
@@ -465,12 +490,14 @@ function UsersTab() {
     queryKey: ["roles"],
     queryFn:  () => usersApi.roles().then((r) => r.data),
   });
+  const { data: userSummary } = useQuery({
+    queryKey: ["users", "summary"],
+    queryFn: () => usersApi.summary().then((r) => r.data),
+  });
+  const defaultRoleId = roles.find((role) => role.name === "STAFF")?.id ?? roles[0]?.id ?? 0;
 
   const deactivate = useMutation({
-    mutationFn: (id: number) =>
-      axios.delete(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api"}/users/${id}`, {
-        withCredentials: true,
-      }),
+    mutationFn: (id: number) => usersApi.deactivate(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
       showToast("User deactivated", true);
@@ -514,7 +541,7 @@ function UsersTab() {
       qc.invalidateQueries({ queryKey: ["users"] });
       showToast("User created", true);
       setShowForm(false);
-      setNewUser({ email: "", password: "", full_name: "", role_id: 3 });
+      setNewUser({ email: "", password: "", full_name: "", role_id: defaultRoleId });
     },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
@@ -528,6 +555,7 @@ function UsersTab() {
         <EditUserModal
           user={editingUser}
           roles={roles}
+          isSelf={editingUser.id === currentUser?.id}
           onClose={() => setEditingUser(null)}
           isPending={editUser.isPending}
           onSave={(data) => {
@@ -572,8 +600,16 @@ function UsersTab() {
       )}
 
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-400">{users.length} user{users.length !== 1 ? "s" : ""} total</p>
-        <Button size="sm" icon={<Plus size={13} />} onClick={() => setShowForm((v) => !v)}>
+        <p className="text-xs text-gray-400">
+          Showing {users.length} of {userSummary?.total ?? users.length} users
+        </p>
+        <Button size="sm" icon={<Plus size={13} />} onClick={() => {
+          setNewUser((current) => ({
+            ...current,
+            role_id: current.role_id || defaultRoleId,
+          }));
+          setShowForm((value) => !value);
+        }}>
           New user
         </Button>
       </div>
@@ -627,7 +663,7 @@ function UsersTab() {
             <Button
               variant="primary" size="sm"
               onClick={() => createUser.mutate()}
-              disabled={createUser.isPending || !newUser.email || !newUser.full_name || !newUser.password}
+              disabled={createUser.isPending || !newUser.email || !newUser.full_name || !newUser.password || !newUser.role_id}
             >
               {createUser.isPending ? "Creating…" : "Create User"}
             </Button>
@@ -704,7 +740,7 @@ function UsersTab() {
                           <Pencil size={11} />
                           Edit
                         </button>
-                        <button
+                        {u.id !== currentUser?.id && <button
                           onClick={() => {
                             if (confirm(`Reset password for ${u.full_name}? A new temporary password will be generated.`))
                               resetPassword.mutate(u.id);
@@ -715,7 +751,7 @@ function UsersTab() {
                         >
                           <KeyRound size={11} />
                           Reset PW
-                        </button>
+                        </button>}
                         {!u.employee_id && (
                           <button
                             onClick={() => {
@@ -730,7 +766,7 @@ function UsersTab() {
                             Buat Pegawai
                           </button>
                         )}
-                        {u.is_active && (
+                        {u.is_active && u.id !== currentUser?.id && (
                           <button
                             onClick={() => {
                               if (confirm(`Deactivate ${u.full_name}?`)) deactivate.mutate(u.id);
@@ -755,546 +791,6 @@ function UsersTab() {
           </tbody>
         </table>
       </Card>
-    </div>
-  );
-}
-
-// ─── Config tab (Super Admin only) ───────────────────────────────────────────
-function ConfigTab() {
-  const qc = useQueryClient();
-  const [section,    setSection]  = useState<"cost-codes" | "cost-centres" | "approval-rules">("cost-codes");
-  const [toast,      setToast]    = useState<{ msg: string; ok: boolean } | null>(null);
-  const [showCCForm, setShowCC]   = useState(false);
-  const [showCentreForm, setShowCentreForm] = useState(false);
-  const [showARForm, setShowAR]   = useState(false);
-  const [editingAR, setEditingAR] = useState<ApprovalRule | null>(null);
-  const [ccForm, setCcForm]       = useState<CostCodeCreate>({ code: "", name: "", category: "Direct" });
-  const [centreForm, setCentreForm] = useState<CostCentreCreate>({ code: "", name: "", description: "" });
-  const [arForm, setArForm]       = useState<ApprovalRuleCreate>({
-    min_amount: 0, required_role: "PM", priority: 10,
-  });
-
-  function showToast(msg: string, ok: boolean) {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }
-
-  const { data: costCodes = [], isLoading: ccLoading } = useQuery({
-    queryKey: ["cost-codes", "all"],
-    queryFn: () => costCodesApi.list(false).then((r) => r.data),
-  });
-
-  const { data: rules = [], isLoading: arLoading } = useQuery({
-    queryKey: ["approval-rules"],
-    queryFn: () => vaultApi.listRules().then((r) => r.data),
-  });
-
-  const { data: costCentres = [], isLoading: centreLoading } = useQuery({
-    queryKey: ["cost-centres", "all"],
-    queryFn: () => costCentresApi.list(false).then((r) => r.data),
-  });
-
-  const createCC = useMutation({
-    mutationFn: () => costCodesApi.create(ccForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-codes"] });
-      showToast("Cost code created", true);
-      setShowCC(false);
-      setCcForm({ code: "", name: "", category: "Direct" });
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const deactivateCC = useMutation({
-    mutationFn: (id: number) => costCodesApi.deactivate(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-codes"] });
-      showToast("Cost code deactivated", true);
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const createCentre = useMutation({
-    mutationFn: () => costCentresApi.create(centreForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-centres"] });
-      showToast("Cost centre created", true);
-      setShowCentreForm(false);
-      setCentreForm({ code: "", name: "", description: "" });
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const deactivateCentre = useMutation({
-    mutationFn: (id: number) => costCentresApi.deactivate(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-centres"] });
-      showToast("Cost centre deactivated", true);
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const createAR = useMutation({
-    mutationFn: () => vaultApi.createRule(arForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approval-rules"] });
-      showToast("Approval rule created", true);
-      setShowAR(false);
-      setArForm({ min_amount: 0, required_role: "PM", priority: 10 });
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const updateAR = useMutation({
-    mutationFn: () => vaultApi.updateRule(editingAR!.id, arForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approval-rules"] });
-      showToast("Approval rule updated", true);
-      setShowAR(false);
-      setEditingAR(null);
-      setArForm({ min_amount: 0, required_role: "PM", priority: 10 });
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  const deactivateAR = useMutation({
-    mutationFn: (id: number) => vaultApi.deactivateRule(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approval-rules"] });
-      showToast("Rule deactivated", true);
-    },
-    onError: (e) => showToast(getErrorMessage(e), false),
-  });
-
-  return (
-    <div className="space-y-5 max-w-3xl">
-      {toast && <Toast {...toast} />}
-
-      {/* Section switcher */}
-      <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-xl p-1 w-fit">
-        {(["cost-codes", "cost-centres", "approval-rules"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSection(s)}
-            className={cn(
-              "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all",
-              section === s
-                ? "bg-gray-900 text-white shadow-sm"
-                : "text-gray-500 hover:text-gray-800"
-            )}
-          >
-            {s === "cost-codes" ? "Cost Codes" : s === "cost-centres" ? "Cost Centres" : "Approval Matrix"}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Cost Codes ──────────────────────────────────────────────────────── */}
-      {section === "cost-codes" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              {costCodes.length} cost code{costCodes.length !== 1 ? "s" : ""}
-            </p>
-            <Button size="sm" icon={<Plus size={12} />} onClick={() => setShowCC((v) => !v)}>
-              Add Code
-            </Button>
-          </div>
-
-          {showCCForm && (
-            <Card className="border-primary/30 bg-primary/2">
-              <h3 className="text-xs font-semibold text-gray-700 mb-3">New Cost Code</h3>
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Code *</label>
-                  <input
-                    value={ccForm.code}
-                    onChange={(e) => setCcForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-                    placeholder="D-001"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Category *</label>
-                  <select
-                    value={ccForm.category}
-                    onChange={(e) => setCcForm((f) => ({ ...f, category: e.target.value as CostCodeCategory }))}
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  >
-                    {COST_CODE_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-xs text-gray-500 mb-1">Name *</label>
-                  <input
-                    value={ccForm.name}
-                    onChange={(e) => setCcForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="Material & Equipment"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setShowCC(false)}>Cancel</Button>
-                <Button
-                  variant="primary" size="sm"
-                  onClick={() => createCC.mutate()}
-                  disabled={createCC.isPending || !ccForm.code || !ccForm.name}
-                >
-                  {createCC.isPending ? "Creating…" : "Create"}
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          <Card padding={false}>
-            {ccLoading ? (
-              <div className="p-6 space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="th">Code</th>
-                    <th className="th">Name</th>
-                    <th className="th hidden sm:table-cell">Category</th>
-                    <th className="th hidden md:table-cell">Status</th>
-                    <th className="th" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {costCodes.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="td text-center text-gray-400 py-8 text-xs">
-                        No cost codes yet
-                      </td>
-                    </tr>
-                  ) : costCodes.map((cc) => (
-                    <tr key={cc.id} className={cn("hover:bg-gray-50/60 transition-colors", !cc.is_active && "opacity-50")}>
-                      <td className="td">
-                        <span className="font-mono text-xs font-semibold text-gray-600">{cc.code}</span>
-                      </td>
-                      <td className="td">
-                        <span className="text-sm text-gray-900">{cc.name}</span>
-                      </td>
-                      <td className="td hidden sm:table-cell">
-                        <span className="text-xs text-gray-500">{cc.category}</span>
-                      </td>
-                      <td className="td hidden md:table-cell">
-                        <span className={cn(
-                          "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-                          cc.is_active
-                            ? "bg-green-50 text-green-700 border-green-200"
-                            : "bg-gray-100 text-gray-500 border-gray-200"
-                        )}>
-                          {cc.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="td text-right">
-                        {cc.is_active && (
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Deactivate cost code ${cc.code}?`))
-                                deactivateCC.mutate(cc.id);
-                            }}
-                            className="text-[11px] text-red-500 hover:text-red-700 font-medium"
-                          >
-                            Deactivate
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Card>
-        </div>
-      )}
-
-      {section === "cost-centres" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              {costCentres.length} funding pocket{costCentres.length !== 1 ? "s" : ""}
-            </p>
-            <Button size="sm" icon={<Plus size={12} />} onClick={() => setShowCentreForm((v) => !v)}>
-              Add Centre
-            </Button>
-          </div>
-
-          {showCentreForm && (
-            <Card className="border-primary/30 bg-primary/2">
-              <h3 className="text-xs font-semibold text-gray-700 mb-3">New Cost Centre</h3>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Code *</label>
-                  <input
-                    value={centreForm.code}
-                    onChange={(e) => setCentreForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-                    placeholder="CAPEX"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Name *</label>
-                  <input
-                    value={centreForm.name}
-                    onChange={(e) => setCentreForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="Capital expenditure"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-500 mb-1">Description</label>
-                  <input
-                    value={centreForm.description ?? ""}
-                    onChange={(e) => setCentreForm((f) => ({ ...f, description: e.target.value }))}
-                    placeholder="Which source of money this centre represents"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setShowCentreForm(false)}>Cancel</Button>
-                <Button
-                  variant="primary" size="sm"
-                  onClick={() => createCentre.mutate()}
-                  disabled={createCentre.isPending || !centreForm.code || !centreForm.name}
-                >
-                  {createCentre.isPending ? "Creating..." : "Create"}
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          <Card padding={false}>
-            {centreLoading ? (
-              <div className="p-6 space-y-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="th">Code</th>
-                    <th className="th">Name</th>
-                    <th className="th hidden md:table-cell">Description</th>
-                    <th className="th hidden sm:table-cell">Status</th>
-                    <th className="th" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {costCentres.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="td text-center text-gray-400 py-8 text-xs">
-                        No cost centres yet
-                      </td>
-                    </tr>
-                  ) : costCentres.map((centre) => (
-                    <tr key={centre.id} className={cn("hover:bg-gray-50/60 transition-colors", !centre.is_active && "opacity-50")}>
-                      <td className="td">
-                        <span className="font-mono text-xs font-semibold text-gray-600">{centre.code}</span>
-                      </td>
-                      <td className="td">
-                        <span className="text-sm text-gray-900">{centre.name}</span>
-                      </td>
-                      <td className="td hidden md:table-cell">
-                        <span className="text-xs text-gray-500">{centre.description ?? "-"}</span>
-                      </td>
-                      <td className="td hidden sm:table-cell">
-                        <span className={cn(
-                          "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-                          centre.is_active
-                            ? "bg-green-50 text-green-700 border-green-200"
-                            : "bg-gray-100 text-gray-500 border-gray-200"
-                        )}>
-                          {centre.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="td text-right">
-                        {centre.is_active && (
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Deactivate cost centre ${centre.code}?`))
-                                deactivateCentre.mutate(centre.id);
-                            }}
-                            className="text-[11px] text-red-500 hover:text-red-700 font-medium"
-                          >
-                            Deactivate
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Card>
-        </div>
-      )}
-
-      {/* ── Approval Rules ──────────────────────────────────────────────────── */}
-      {section === "approval-rules" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              {rules.length} active rule{rules.length !== 1 ? "s" : ""} — applied at expense submit
-            </p>
-            <Button size="sm" icon={<Plus size={12} />} onClick={() => {
-              setEditingAR(null);
-              setArForm({ min_amount: 0, required_role: "PM", priority: 10 });
-              setShowAR((v) => !v);
-            }}>
-              Add Rule
-            </Button>
-          </div>
-
-          {showARForm && (
-            <Card className="border-primary/30">
-              <h3 className="text-xs font-semibold text-gray-700 mb-3">
-                {editingAR ? "Edit Approval Rule" : "New Approval Rule"}
-              </h3>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Min Amount (IDR) *</label>
-                  <input
-                    type="number"
-                    value={arForm.min_amount}
-                    onChange={(e) => setArForm((f) => ({ ...f, min_amount: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Max Amount (leave empty = unlimited)</label>
-                  <input
-                    type="number"
-                    value={arForm.max_amount ?? ""}
-                    onChange={(e) => setArForm((f) => ({
-                      ...f, max_amount: e.target.value ? Number(e.target.value) : undefined,
-                    }))}
-                    placeholder="∞"
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Required Role *</label>
-                  <select
-                    value={arForm.required_role}
-                    onChange={(e) => setArForm((f) => ({ ...f, required_role: e.target.value as RoleName }))}
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  >
-                    {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Priority (lower = first)</label>
-                  <input
-                    type="number"
-                    value={arForm.priority}
-                    onChange={(e) => setArForm((f) => ({ ...f, priority: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setShowAR(false); setEditingAR(null); }}>Cancel</Button>
-                <Button
-                  variant="primary" size="sm"
-                  onClick={() => editingAR ? updateAR.mutate() : createAR.mutate()}
-                  disabled={createAR.isPending || updateAR.isPending}
-                >
-                  {createAR.isPending || updateAR.isPending ? "Saving..." : editingAR ? "Save Rule" : "Create Rule"}
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          <Card padding={false}>
-            {arLoading ? (
-              <div className="p-6 space-y-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-4 bg-gray-100 rounded animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="th">Amount Range</th>
-                    <th className="th hidden sm:table-cell">Category</th>
-                    <th className="th">Required Role</th>
-                    <th className="th hidden md:table-cell text-right">Priority</th>
-                    <th className="th" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {rules.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="td text-center text-gray-400 py-8 text-xs">
-                        No approval rules defined
-                      </td>
-                    </tr>
-                  ) : rules.map((rule) => (
-                    <tr key={rule.id} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="td">
-                        <span className="num text-xs font-semibold text-gray-700">
-                          {formatCurrency(rule.min_amount)} —{" "}
-                          {rule.max_amount ? formatCurrency(rule.max_amount) : "∞"}
-                        </span>
-                      </td>
-                      <td className="td hidden sm:table-cell">
-                        <span className="text-xs text-gray-500">
-                          {rule.cost_code_category ?? "All"}
-                        </span>
-                      </td>
-                      <td className="td">
-                        <span className="text-xs font-medium text-gray-900">
-                          {ROLE_LABEL[rule.required_role] ?? rule.required_role}
-                        </span>
-                      </td>
-                      <td className="td hidden md:table-cell text-right">
-                        <span className="num text-xs text-gray-400">{rule.priority}</span>
-                      </td>
-                      <td className="td text-right">
-                        <button
-                          onClick={() => {
-                            setEditingAR(rule);
-                            setArForm({
-                              min_amount: rule.min_amount,
-                              max_amount: rule.max_amount ?? undefined,
-                              cost_code_category: rule.cost_code_category ?? undefined,
-                              required_role: rule.required_role,
-                              priority: rule.priority,
-                            });
-                            setShowAR(true);
-                          }}
-                          className="text-[11px] text-gray-500 hover:text-gray-900 font-medium mr-3"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm("Deactivate this rule?"))
-                              deactivateAR.mutate(rule.id);
-                          }}
-                          className="text-[11px] text-red-500 hover:text-red-700 font-medium"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Card>
-        </div>
-      )}
     </div>
   );
 }

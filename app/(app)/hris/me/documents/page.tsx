@@ -6,12 +6,13 @@ import { hrisMeApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, fmtDate } from "@/lib/utils";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace("/api", "") ?? "";
+import { QueryErrorState } from "@/components/ui/query-error-state";
+import { fmtDate } from "@/lib/utils";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import { toastError } from "@/lib/hooks/use-toast";
 
 export default function MyDocumentsPage() {
-  const { data: docs = [], isLoading } = useQuery({
+  const { data: docs = [], error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris", "me", "documents"],
     queryFn: () => hrisMeApi.getDocuments().then((r) => r.data),
   });
@@ -24,14 +25,12 @@ export default function MyDocumentsPage() {
     IJAZAH: "Ijazah", SKCK: "SKCK", OTHER: "Lainnya",
   };
 
-  function handleDownload(url: string, filename: string) {
-    // Build full URL if relative
-    const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
-    const a = document.createElement("a");
-    a.href = fullUrl;
-    a.download = filename;
-    a.target = "_blank";
-    a.click();
+  async function handleDownload(url: string, filename: string) {
+    try {
+      await downloadAuthenticatedFile(url, filename);
+    } catch {
+      toastError("Dokumen gagal diunduh");
+    }
   }
 
   return (
@@ -52,6 +51,8 @@ export default function MyDocumentsPage() {
         <div className="space-y-3">
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-14 w-full" />)}
         </div>
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => refetch()} />
       ) : (
         <>
           {/* Slip Gaji */}
@@ -69,8 +70,8 @@ export default function MyDocumentsPage() {
               </div>
             ) : (
               <ul className="divide-y divide-gray-50">
-                {payslips.map((doc, idx) => (
-                  <li key={idx} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
+                {payslips.map((doc) => (
+                  <li key={doc.file_url} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
                     <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
                       <Banknote size={14} className="text-orange-500" />
                     </div>
@@ -105,8 +106,8 @@ export default function MyDocumentsPage() {
               </div>
             ) : (
               <ul className="divide-y divide-gray-50">
-                {empDocs.map((doc, idx) => (
-                  <li key={idx} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
+                {empDocs.map((doc) => (
+                  <li key={doc.file_url} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
                     <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
                       <FileText size={14} className="text-blue-500" />
                     </div>

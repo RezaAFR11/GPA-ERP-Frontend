@@ -13,6 +13,7 @@ import { useAuth, useRole } from "@/lib/auth-context";
 import { getActionCenterQueues, loadActionCenterExpenses } from "@/lib/action-center";
 import type { Expense } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 
 interface GroupProps {
   title:    string;
@@ -267,7 +268,15 @@ export default function ActionCenterPage() {
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
                     Receipt {selectedExpense.expense_type === "reimbursement" && <span className="text-red-500">*</span>}
                   </p>
-                  <a href={selectedExpense.receipt_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-sm hover:underline">View Receipt ↗</a>
+                  <button
+                    type="button"
+                    onClick={() => openAuthenticatedFile(selectedExpense.receipt_url!).catch(() => {
+                      toastError("Receipt unavailable", "The receipt could not be opened");
+                    })}
+                    className="text-blue-600 text-sm hover:underline"
+                  >
+                    View Receipt
+                  </button>
                 </div>
               )}
               {!selectedExpense.receipt_url && selectedExpense.expense_type === "reimbursement" && (

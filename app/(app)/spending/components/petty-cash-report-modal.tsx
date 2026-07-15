@@ -8,6 +8,8 @@ import { Input, Select } from "@/components/ui/input";
 import { costCentresApi, costCodesApi, expensesApi, pettyCashReportsApi, projectsApi } from "@/lib/api";
 import { formatCurrency, getErrorMessage } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
+import { AuthenticatedImage } from "@/components/ui/authenticated-image";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 
 type Row = {
   id: string;
@@ -86,7 +88,6 @@ function ReceiptCell({
 }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
   async function uploadFile(file: File) {
     if (!file.type.startsWith("image/")) {
@@ -125,8 +126,23 @@ function ReceiptCell({
     onUpdate({ receipt_url: "", receipt_preview: undefined });
   }
 
-  const previewSrc = row.receipt_preview
-    ?? (row.receipt_url?.startsWith("/") ? `${apiBase}${row.receipt_url}` : row.receipt_url || null);
+  const previewSrc = (row.receipt_preview ?? row.receipt_url) || null;
+  const isManagedReceipt = Boolean(
+    row.receipt_url && (
+      row.receipt_url.startsWith("/uploads/") || row.receipt_url.includes("/uploads/")
+    )
+  );
+
+  function openReceipt() {
+    if (!previewSrc) return;
+    if (isManagedReceipt && !row.receipt_preview) {
+      openAuthenticatedFile(row.receipt_url).catch(() => {
+        toastError("Receipt unavailable", "Could not open the uploaded receipt");
+      });
+      return;
+    }
+    window.open(previewSrc, "_blank", "noopener,noreferrer");
+  }
 
   /* ── If an image is attached: show thumbnail ── */
   if (previewSrc && (row.receipt_preview || row.receipt_url)) {
@@ -138,14 +154,22 @@ function ReceiptCell({
           </div>
         ) : (
           <>
-            <a href={previewSrc} target="_blank" rel="noopener noreferrer" className="shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewSrc}
-                alt="receipt"
-                className="h-7 w-10 object-cover rounded border border-gray-200 hover:scale-105 transition-transform"
-              />
-            </a>
+            <button type="button" onClick={openReceipt} className="shrink-0">
+              {isManagedReceipt && !row.receipt_preview ? (
+                <AuthenticatedImage
+                  src={row.receipt_url}
+                  alt="receipt"
+                  className="h-7 w-10 object-cover rounded border border-gray-200 hover:scale-105 transition-transform"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewSrc}
+                  alt="receipt"
+                  className="h-7 w-10 object-cover rounded border border-gray-200 hover:scale-105 transition-transform"
+                />
+              )}
+            </button>
             <span className="text-[10px] text-gray-400 truncate flex-1">
               {row.receipt_url ? "Uploaded" : "Preview"}
             </span>

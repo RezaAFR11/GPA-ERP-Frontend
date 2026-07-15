@@ -6,19 +6,17 @@ import { hrisMeApi, hrisLeaveApi, hrisLeaveCalendarApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { QueryErrorState } from "@/components/ui/query-error-state";
 import { cn } from "@/lib/utils";
+import { toastError } from "@/lib/hooks/use-toast";
+import { useRole } from "@/lib/auth-context";
 
 const STATUS_CFG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
-  DRAFT:     { label: "Draft",    cls: "bg-gray-50 text-gray-500 border-gray-200",   Icon: Clock },
-  SUBMITTED: { label: "Menunggu", cls: "bg-amber-50 text-amber-700 border-amber-200", Icon: Clock },
-  APPROVED:  { label: "Disetujui",cls: "bg-teal-50 text-teal-700 border-teal-200",   Icon: CheckCircle2 },
-  REJECTED:  { label: "Ditolak", cls: "bg-red-50 text-red-700 border-red-200",       Icon: XCircle },
+  draft:     { label: "Draft",    cls: "bg-gray-50 text-gray-500 border-gray-200",   Icon: Clock },
+  submitted: { label: "Menunggu", cls: "bg-amber-50 text-amber-700 border-amber-200", Icon: Clock },
+  approved:  { label: "Disetujui",cls: "bg-teal-50 text-teal-700 border-teal-200",   Icon: CheckCircle2 },
+  rejected:  { label: "Ditolak", cls: "bg-red-50 text-red-700 border-red-200",       Icon: XCircle },
 };
-
-function daysBetween(start: string, end: string) {
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  return Math.round(ms / 86400000) + 1;
-}
 
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500";
 
@@ -27,27 +25,70 @@ function RequestModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   const [startDate,   setStartDate]   = useState("");
   const [endDate,     setEndDate]     = useState("");
   const [reason,      setReason]      = useState("");
+  const [doctorCert,  setDoctorCert]  = useState<File | null>(null);
 
-  const { data: leaveTypes } = useQuery({
+  const {
+    data: leaveTypes,
+    error: leaveTypesError,
+    isError: leaveTypesIsError,
+    refetch: refetchLeaveTypes,
+  } = useQuery({
     queryKey: ["leave-types"],
     queryFn: () => hrisLeaveApi.listTypes().then((r) => r.data),
   });
 
-  const days = startDate && endDate ? daysBetween(startDate, endDate) : 0;
+  const selectedType = leaveTypes?.find(type => type.id === Number(leaveTypeId));
+  const validRange = Boolean(startDate && endDate && endDate >= startDate);
+  const {
+    data: durationPreview,
+    error: previewError,
+    isError: previewIsError,
+    isFetching: previewLoading,
+    refetch: refetchPreview,
+  } = useQuery({
+    queryKey: ["hris", "leave-duration", startDate, endDate],
+    queryFn: () => hrisLeaveApi.previewDuration(startDate, endDate).then(r => r.data),
+    enabled: validRange,
+  });
+  const days = durationPreview?.days ?? 0;
 
   const mutation = useMutation({
-    mutationFn: () =>
-      hrisLeaveApi.create({
-        leave_type_id: leaveTypeId as number,
-        start_date:    startDate,
-        end_date:      endDate,
-        reason:        reason || undefined,
-      }),
+    mutationFn: async () => {
+      let doctorCertUrl: string | undefined;
+      try {
+        doctorCertUrl = doctorCert
+          ? (await hrisLeaveApi.uploadDoctorCertificate(doctorCert)).data.file_url
+          : undefined;
+        return await hrisLeaveApi.create({
+          leave_type_id: leaveTypeId as number,
+          start_date:    startDate,
+          end_date:      endDate,
+          reason:        reason || undefined,
+          doctor_cert_url: doctorCertUrl,
+        });
+      } catch (error) {
+        if (doctorCertUrl) {
+          try {
+            await hrisLeaveApi.discardDoctorCertificate(doctorCertUrl);
+          } catch {
+            // The backend also removes stale orphan uploads automatically.
+          }
+        }
+        throw error;
+      }
+    },
     onSuccess,
-    onError: () => {},
+    onError: (e: unknown) => toastError(
+      (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? "Gagal mengajukan cuti",
+    ),
   });
 
-  const canSubmit = leaveTypeId && startDate && endDate && days > 0 && !mutation.isPending;
+  const canSubmit = Boolean(
+    leaveTypeId && validRange && durationPreview && days > 0
+    && (!selectedType?.requires_doctor_cert || doctorCert)
+    && !previewLoading && !mutation.isPending
+  );
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
@@ -62,7 +103,10 @@ function RequestModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           <label className="text-xs font-medium text-gray-600 block">Jenis Cuti</label>
           <select
             value={leaveTypeId}
-            onChange={(e) => setLeaveTypeId(Number(e.target.value))}
+            onChange={(e) => {
+              setLeaveTypeId(e.target.value ? Number(e.target.value) : "");
+              setDoctorCert(null);
+            }}
             className={inputCls}
           >
             <option value="">Pilih jenis cuti...</option>
@@ -71,6 +115,9 @@ function RequestModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
             ))}
           </select>
         </div>
+        {leaveTypesIsError && (
+          <QueryErrorState error={leaveTypesError} onRetry={() => refetchLeaveTypes()} compact />
+        )}
 
         {/* Date Range */}
         <div className="grid grid-cols-2 gap-3">
@@ -95,8 +142,33 @@ function RequestModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           </div>
         </div>
 
-        {days > 0 && (
-          <p className="text-sm text-teal-700 font-medium">{days} hari</p>
+        {startDate && endDate && (
+          <div className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-2">
+            <p className="text-sm text-teal-700 font-medium">
+              {previewLoading ? "Menghitung..." : `${days} hari kerja`}
+            </p>
+            {!!durationPreview?.excluded_holidays.length && (
+              <p className="mt-1 text-[11px] text-gray-500">
+                Libur tidak dihitung: {durationPreview.excluded_holidays.map(h => h.name).join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+        {previewIsError && (
+          <QueryErrorState error={previewError} onRetry={() => refetchPreview()} compact />
+        )}
+
+        {selectedType?.requires_doctor_cert && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600 block">Surat Dokter *</label>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={e => setDoctorCert(e.target.files?.[0] ?? null)}
+              className="block w-full text-xs text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:text-xs file:font-medium file:text-teal-700"
+            />
+            <p className="text-[11px] text-gray-400">PDF, JPG, atau PNG. Maksimal 10 MB.</p>
+          </div>
         )}
 
         {/* Reason */}
@@ -112,7 +184,10 @@ function RequestModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
         </div>
 
         {mutation.isError && (
-          <p className="text-xs text-red-600">Gagal mengajukan. Coba lagi.</p>
+          <p className="text-xs text-red-600">
+            {(mutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+              ?? "Gagal mengajukan. Coba lagi."}
+          </p>
         )}
 
         <div className="flex gap-2">
@@ -141,25 +216,44 @@ function TeamCalendarPanel() {
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const { data: profile } = useQuery({
+  const {
+    data: profile,
+    error: profileError,
+    isError: profileIsError,
+    isLoading: profileIsLoading,
+    refetch: refetchProfile,
+  } = useQuery({
     queryKey: ["hris-me-profile"],
     queryFn: () => hrisMeApi.getProfile().then((r) => r.data),
   });
 
-  const { data: leaves = [], isLoading } = useQuery({
+  const {
+    data: leaves = [],
+    error: leavesError,
+    isError: leavesIsError,
+    isLoading,
+    refetch: refetchLeaves,
+  } = useQuery({
     queryKey: ["hris-team-calendar", year, month, profile?.department?.id],
     queryFn: () => hrisLeaveCalendarApi.get({
       year, month, dept_id: profile?.department?.id,
     }).then((r) => r.data),
-    enabled: true,
+    enabled: Boolean(profile),
   });
 
   const monthDays = new Date(year, month, 0).getDate();
   const days = Array.from({ length: monthDays }, (_, i) => i + 1);
+  const years = Array.from({ length: 5 }, (_, index) => now.getFullYear() - 2 + index);
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
+  const monthStart = `${monthPrefix}-01`;
+  const monthEnd = `${monthPrefix}-${String(monthDays).padStart(2, "0")}`;
+  const rulerDays = Array.from(new Set([1, 5, 10, 15, 20, 25, monthDays]))
+    .filter(day => day <= monthDays)
+    .sort((a, b) => a - b);
 
   // Assign unique colors per employee
   const empColorMap = new Map<number, string>();
-  leaves.forEach((l, i) => {
+  leaves.forEach((l) => {
     if (!empColorMap.has(l.employee_id)) {
       empColorMap.set(l.employee_id, LEAVE_COLORS[empColorMap.size % LEAVE_COLORS.length]);
     }
@@ -176,15 +270,19 @@ function TeamCalendarPanel() {
         </select>
         <select className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none"
           value={year} onChange={e => setYear(parseInt(e.target.value))}>
-          {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         {profile?.department && (
           <span className="text-xs text-gray-400">Dept: {profile.department.name}</span>
         )}
       </div>
 
-      {isLoading ? (
+      {profileIsLoading || isLoading ? (
         <div className="text-center py-8 text-sm text-gray-400">Memuat...</div>
+      ) : profileIsError ? (
+        <QueryErrorState error={profileError} onRetry={() => refetchProfile()} compact />
+      ) : leavesIsError ? (
+        <QueryErrorState error={leavesError} onRetry={() => refetchLeaves()} compact />
       ) : leaves.length === 0 ? (
         <div className="text-center py-10 text-sm text-gray-400">
           <CalendarDays size={28} className="mx-auto mb-2 opacity-30" />
@@ -194,10 +292,10 @@ function TeamCalendarPanel() {
         <div className="space-y-3">
           {leaves.map((leave) => {
             const color = empColorMap.get(leave.employee_id) ?? LEAVE_COLORS[0];
-            const start = new Date(leave.start_date).getDate();
-            const end   = new Date(leave.end_date).getDate();
+            const start = leave.start_date < monthStart ? 1 : Number(leave.start_date.slice(8, 10));
+            const end   = leave.end_date > monthEnd ? monthDays : Number(leave.end_date.slice(8, 10));
             return (
-              <div key={`${leave.employee_id}-${leave.start_date}`}
+              <div key={`${leave.employee_id}-${leave.start_date}-${leave.end_date}-${leave.leave_type}`}
                 className="flex items-center gap-3">
                 <div className="w-32 shrink-0 text-xs font-medium text-gray-700 truncate">{leave.employee_name}</div>
                 <div className="flex-1 relative h-6 bg-gray-50 rounded-lg overflow-hidden">
@@ -212,16 +310,20 @@ function TeamCalendarPanel() {
                     />
                   ))}
                 </div>
-                <div className="shrink-0 text-[10px] text-gray-400">{leave.days} hr</div>
+                <div className="shrink-0 text-[10px] text-gray-400">{leave.days} hari</div>
               </div>
             );
           })}
           {/* Day number ruler */}
           <div className="flex items-center gap-3">
             <div className="w-32 shrink-0" />
-            <div className="flex-1 flex text-[9px] text-gray-300">
-              {[1, 5, 10, 15, 20, 25, monthDays].map(d => (
-                <span key={d} style={{ marginLeft: `${((d - 1) / monthDays) * 100}%` }} className="absolute">{d}</span>
+            <div className="flex-1 relative h-4 text-[9px] text-gray-300">
+              {rulerDays.map(d => (
+                <span
+                  key={d}
+                  style={{ left: `${((d - 1) / Math.max(monthDays - 1, 1)) * 100}%` }}
+                  className="absolute -translate-x-1/2"
+                >{d}</span>
               ))}
             </div>
           </div>
@@ -232,17 +334,29 @@ function TeamCalendarPanel() {
 }
 
 export default function MyLeavePage() {
+  const { isHR, isPM } = useRole();
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"my" | "team">("my");
   const [filter, setFilter] = useState<string | null>(null);
   const qc = useQueryClient();
+  const canViewTeam = isHR || isPM;
 
-  const { data: balances } = useQuery({
+  const {
+    data: balances,
+    error: balancesError,
+    isError: balancesIsError,
+    refetch: refetchBalances,
+  } = useQuery({
     queryKey: ["hris-me-leave-balance"],
     queryFn: () => hrisMeApi.getLeaveBalance().then((r) => r.data),
   });
 
-  const { data: requests } = useQuery({
+  const {
+    data: requests,
+    error: requestsError,
+    isError: requestsIsError,
+    refetch: refetchRequests,
+  } = useQuery({
     queryKey: ["hris-me-leave-requests", filter],
     queryFn: () => hrisMeApi.getLeaveRequests(filter ?? undefined).then((r) => r.data),
   });
@@ -266,11 +380,13 @@ export default function MyLeavePage() {
                 activeTab === "my" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
               <CalendarDays size={12} className="inline mr-1" />Saya
             </button>
-            <button onClick={() => setActiveTab("team")}
+            {canViewTeam && (
+              <button onClick={() => setActiveTab("team")}
               className={cn("px-3 py-1 rounded-md text-xs font-medium transition-colors",
                 activeTab === "team" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
               <Users size={12} className="inline mr-1" />Tim
-            </button>
+              </button>
+            )}
           </div>
           {activeTab === "my" && (
             <Button size="sm" onClick={() => setShowModal(true)}
@@ -282,7 +398,11 @@ export default function MyLeavePage() {
       </div>
 
       {/* Team Calendar */}
-      {activeTab === "team" && <TeamCalendarPanel />}
+      {activeTab === "team" && canViewTeam && <TeamCalendarPanel />}
+
+      {activeTab === "my" && balancesIsError && (
+        <QueryErrorState error={balancesError} onRetry={() => refetchBalances()} compact />
+      )}
 
       {/* Balance Cards */}
       {activeTab === "my" && balances && balances.length > 0 && (
@@ -297,10 +417,12 @@ export default function MyLeavePage() {
                   <div
                     className={cn(
                       "h-full rounded-full transition-all",
-                      b.remaining / b.accrued > 0.5 ? "bg-teal-400" :
-                      b.remaining / b.accrued > 0.2 ? "bg-amber-400" : "bg-red-400",
+                      b.accrued > 0 && b.remaining / b.accrued > 0.5 ? "bg-teal-400" :
+                      b.accrued > 0 && b.remaining / b.accrued > 0.2 ? "bg-amber-400" : "bg-red-400",
                     )}
-                    style={{ width: `${b.accrued ? (b.remaining / b.accrued) * 100 : 0}%` }}
+                    style={{
+                      width: `${b.accrued ? Math.min(100, Math.max(0, (b.remaining / b.accrued) * 100)) : 0}%`,
+                    }}
                   />
                 </div>
                 {!b.is_paid && (
@@ -315,9 +437,13 @@ export default function MyLeavePage() {
       {/* My Requests section */}
       {activeTab === "my" && <>
 
+      {requestsIsError && (
+        <QueryErrorState error={requestsError} onRetry={() => refetchRequests()} compact />
+      )}
+
       {/* Filter Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {[null, "SUBMITTED", "APPROVED", "REJECTED"].map((s) => (
+        {[null, "submitted", "approved", "rejected"].map((s) => (
           <button
             key={s ?? "all"}
             onClick={() => setFilter(s)}
@@ -329,8 +455,8 @@ export default function MyLeavePage() {
             )}
           >
             {s === null ? "Semua" :
-             s === "SUBMITTED" ? "Menunggu" :
-             s === "APPROVED"  ? "Disetujui" : "Ditolak"}
+             s === "submitted" ? "Menunggu" :
+             s === "approved"  ? "Disetujui" : "Ditolak"}
           </button>
         ))}
       </div>
@@ -338,7 +464,7 @@ export default function MyLeavePage() {
       {/* Request List */}
       <div className="space-y-3">
         {(requests ?? []).map((req) => {
-          const cfg = STATUS_CFG[req.status] ?? STATUS_CFG.DRAFT;
+          const cfg = STATUS_CFG[req.status] ?? STATUS_CFG.draft;
           const Icon = cfg.Icon;
           return (
             <Card key={req.id} className="border">
@@ -362,25 +488,40 @@ export default function MyLeavePage() {
                     {req.reason && (
                       <p className="text-xs text-gray-600 mt-1 line-clamp-2">{req.reason}</p>
                     )}
+                    {req.status === "submitted" && req.current_approver_role && (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Menunggu persetujuan: {req.current_approver_role}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 {/* Approval timeline */}
                 {req.approval_history && req.approval_history.length > 0 && (
                   <div className="mt-3 pt-3 border-t space-y-1.5">
-                    {req.approval_history.map((h: { action: string; actor: string; note?: string }, i: number) => (
+                    {req.approval_history.map((h, i) => {
+                      const isApproved = h.action === "approve";
+                      const isRejected = h.action === "reject";
+                      const actionLabel = h.action === "submit" ? "mengajukan"
+                        : isApproved ? "menyetujui"
+                        : isRejected ? "menolak" : h.action;
+                      return (
                       <div key={i} className="flex items-center gap-2 text-[10px] text-gray-400">
                         <div className={cn(
                           "w-4 h-4 rounded-full flex items-center justify-center shrink-0",
-                          h.action === "approved" ? "bg-teal-100 text-teal-600" : "bg-red-100 text-red-600",
+                          isApproved ? "bg-teal-100 text-teal-600"
+                            : isRejected ? "bg-red-100 text-red-600"
+                            : "bg-blue-100 text-blue-600",
                         )}>
-                          {h.action === "approved" ? <CheckCircle2 size={8} /> : <XCircle size={8} />}
+                          {isApproved ? <CheckCircle2 size={8} />
+                            : isRejected ? <XCircle size={8} /> : <Clock size={8} />}
                         </div>
                         <span className="font-medium text-gray-600">{h.actor}</span>
-                        <span>{h.action === "approved" ? "menyetujui" : "menolak"}</span>
+                        <span>{actionLabel}</span>
                         {h.note && <span className="italic">"{h.note}"</span>}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -388,7 +529,7 @@ export default function MyLeavePage() {
           );
         })}
 
-        {requests?.length === 0 && (
+        {!requestsIsError && requests?.length === 0 && (
           <div className="text-center py-10 text-sm text-gray-400">
             <CalendarDays size={32} className="mx-auto mb-2 opacity-30" />
             Belum ada pengajuan cuti

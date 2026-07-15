@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clock, Plus, ChevronLeft, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { Clock, Plus, ChevronLeft, CheckCircle, XCircle } from "lucide-react";
 import Link from "next/link";
 import { hrisMeApi, hrisOvertimeApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
-import { cn, fmtDate } from "@/lib/utils";
+import { QueryErrorState } from "@/components/ui/query-error-state";
+import { cn, fmtDate, toLocalDateInputValue } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
-import type { OvertimeRequest } from "@/lib/types";
 
 const STATUS_LABEL: Record<string, string> = {
   draft:     "Draft",
@@ -29,8 +29,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 function NewOvertimeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const today = new Date().toISOString().split("T")[0];
+  const today = toLocalDateInputValue();
   const [form, setForm] = useState({ date: today, planned_hours: "2", reason: "" });
+  const plannedHours = Number(form.planned_hours);
+  const canSubmit = Boolean(
+    form.date
+    && form.reason.trim()
+    && Number.isFinite(plannedHours)
+    && plannedHours > 0
+    && plannedHours <= 12
+  );
 
   const submitMut = useMutation({
     mutationFn: () => hrisOvertimeApi.submit({
@@ -59,7 +67,7 @@ function NewOvertimeModal({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Rencana Jam Lembur</label>
-            <input type="number" min={0.5} max={8} step={0.5}
+            <input type="number" min={0.5} max={12} step={0.5}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               value={form.planned_hours} onChange={e => setForm(f => ({ ...f, planned_hours: e.target.value }))} />
           </div>
@@ -68,6 +76,7 @@ function NewOvertimeModal({ open, onClose }: { open: boolean; onClose: () => voi
           <label className="block text-xs font-medium text-gray-600 mb-1">Alasan / Pekerjaan yang Dilakukan</label>
           <textarea rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 resize-none"
             value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+            maxLength={1000}
             placeholder="Jelaskan pekerjaan yang akan/telah dilakukan saat lembur..." />
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
@@ -77,6 +86,7 @@ function NewOvertimeModal({ open, onClose }: { open: boolean; onClose: () => voi
           <Button size="sm" onClick={onClose}>Batal</Button>
           <Button variant="primary" size="sm" loading={submitMut.isPending}
             className="bg-teal-700 hover:bg-teal-600 border-teal-700"
+            disabled={!canSubmit || submitMut.isPending}
             onClick={() => submitMut.mutate()}>Kirim Pengajuan</Button>
         </div>
       </div>
@@ -87,7 +97,7 @@ function NewOvertimeModal({ open, onClose }: { open: boolean; onClose: () => voi
 export default function MyOvertimePage() {
   const [showNew, setShowNew] = useState(false);
 
-  const { data: requests = [], isLoading } = useQuery({
+  const { data: requests = [], error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris", "me", "overtime"],
     queryFn: () => hrisMeApi.getOvertimeRequests().then((r) => r.data),
   });
@@ -118,6 +128,10 @@ export default function MyOvertimePage() {
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : isError ? (
+          <div className="p-4">
+            <QueryErrorState error={error} onRetry={() => refetch()} compact />
           </div>
         ) : requests.length === 0 ? (
           <div className="text-center py-12">

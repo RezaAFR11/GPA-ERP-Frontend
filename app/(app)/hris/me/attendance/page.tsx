@@ -1,14 +1,16 @@
 "use client";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, CheckCircle2, Clock, MapPin, Camera, Trash2 } from "lucide-react";
-import { hrisMeApi, hrisAttendanceApi } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, CheckCircle2, Clock, MapPin, Camera } from "lucide-react";
+import { hrisMeApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import ClockInModal from "@/app/(app)/hris/attendance/components/clock-in-modal";
 import { SelfieModal } from "@/components/hris/SelfieModal";
-import { cn } from "@/lib/utils";
+import { AuthenticatedImage } from "@/components/ui/authenticated-image";
+import { QueryErrorState } from "@/components/ui/query-error-state";
+import { cn, toLocalDateInputValue } from "@/lib/utils";
 import type { MyAttendanceRecord } from "@/lib/types";
 
 const MONTH_NAMES = [
@@ -27,35 +29,21 @@ function totalHours(r: { hours_regular: number; hours_overtime_weekday: number; 
 }
 
 export default function MyAttendancePage() {
-  const qc    = useQueryClient();
   const today = new Date();
   const [year,  setYear]  = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [showModal, setShowModal] = useState(false);
+  const todayString = toLocalDateInputValue(today);
 
-  const { data, refetch } = useQuery({
+  const { data, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris-me-attendance", year, month],
     queryFn: () => hrisMeApi.getAttendance(year, month).then((r) => r.data),
-  });
-
-  /* Debug: reset own attendance for today */
-  const debugResetMut = useMutation({
-    mutationFn: () => hrisAttendanceApi.debugResetToday(),
-    onSuccess: (res) => {
-      alert(res.data.detail);
-      qc.invalidateQueries({ queryKey: ["hris-me-attendance"] });
-    },
-    onError: (e: unknown) => {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Reset gagal";
-      alert(`Error: ${msg}`);
-    },
   });
 
   const clockState  = data?.clock_state ?? "not_clocked_in";
   const todayRecord = data?.today;
   const [selfieRec, setSelfieRec] = useState<MyAttendanceRecord | null>(null);
 
-  const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace("/api", "");
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear((y) => y - 1); }
@@ -70,28 +58,30 @@ export default function MyAttendancePage() {
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
   const recordMap = Object.fromEntries((data?.records ?? []).map((r) => [r.date, r]));
 
+  if (isLoading) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
+        <h1 className="text-lg font-bold text-gray-900">Absensi Saya</h1>
+        <Card className="border p-4 text-sm text-gray-400">Memuat data absensi...</Card>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
+        <h1 className="text-lg font-bold text-gray-900">Absensi Saya</h1>
+        <QueryErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">Absensi Saya</h1>
         <div className="flex items-center gap-2">
-          {/* DEBUG button — only rendered in development builds */}
-          {process.env.NODE_ENV === "development" && (
-            <button
-              onClick={() => {
-                if (!confirm("Reset absensi hari ini? (debug only)")) return;
-                debugResetMut.mutate();
-              }}
-              disabled={debugResetMut.isPending}
-              title="[DEBUG] Reset absensi hari ini"
-              className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-red-300 bg-red-50 text-red-500 hover:bg-red-100 text-[10px] font-semibold disabled:opacity-40 transition-colors"
-            >
-              <Trash2 size={10} />
-              {debugResetMut.isPending ? "…" : "Reset"}
-            </button>
-          )}
-
           {clockState !== "clocked_out" && (
             <Button
               size="sm"
@@ -118,7 +108,9 @@ export default function MyAttendancePage() {
       )}>
         <div className="p-4">
           <p className="text-xs text-gray-400 mb-2">
-            Hari ini · {new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" })}
+            {todayRecord?.date && todayRecord.date !== todayString
+              ? `Shift aktif sejak ${new Date(`${todayRecord.date}T00:00:00`).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" })}`
+              : `Hari ini · ${today.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" })}`}
           </p>
           <div className="flex gap-6">
             <div>
@@ -140,9 +132,8 @@ export default function MyAttendancePage() {
           {todayRecord?.selfie_url && (
             <div className="mt-2 flex items-center gap-2">
               <button onClick={() => setSelfieRec(todayRecord)} className="group">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`${BASE_URL}/${todayRecord.selfie_url}`}
+                <AuthenticatedImage
+                  src={todayRecord.selfie_url}
                   alt="selfie"
                   className="w-10 h-10 rounded-full object-cover ring-2 ring-teal-300 shadow group-hover:ring-teal-500 transition-all"
                 />
@@ -184,7 +175,7 @@ export default function MyAttendancePage() {
           <p className="text-sm font-semibold text-gray-800">{MONTH_NAMES[month - 1]} {year}</p>
           {data && (
             <p className="text-xs text-gray-400">
-              {data.summary.working_days} hari · {data.summary.total_hours.toFixed(1)} jam
+              {data.summary.attendance_days} hari hadir · {data.summary.total_hours.toFixed(1)} jam
             </p>
           )}
         </div>
@@ -210,9 +201,10 @@ export default function MyAttendancePage() {
             const day = i + 1;
             const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const rec = recordMap[dateStr];
-            const isToday   = dateStr === today.toISOString().split("T")[0];
-            const isFuture  = new Date(dateStr) > today;
-            const isWeekend = new Date(dateStr).getDay() === 0 || new Date(dateStr).getDay() === 6;
+            const cellDate  = new Date(year, month - 1, day);
+            const isToday   = dateStr === todayString;
+            const isFuture  = dateStr > todayString;
+            const isWeekend = cellDate.getDay() === 0 || cellDate.getDay() === 6;
             return (
               <div
                 key={day}
@@ -243,7 +235,7 @@ export default function MyAttendancePage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-sm font-semibold text-gray-800">
-                    {new Date(rec.date).toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" })}
+                    {new Date(`${rec.date}T00:00:00`).toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" })}
                   </p>
                   <div className="flex gap-4 mt-1">
                     <div>
@@ -263,9 +255,8 @@ export default function MyAttendancePage() {
                 <div className="flex flex-col items-end gap-1">
                   {rec.selfie_url ? (
                     <button onClick={() => setSelfieRec(rec)} className="group">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`${BASE_URL}/${rec.selfie_url}`}
+                      <AuthenticatedImage
+                        src={rec.selfie_url}
                         alt="selfie"
                         className="w-8 h-8 rounded-full object-cover ring-2 ring-white shadow group-hover:ring-teal-400 transition-all"
                       />

@@ -6,6 +6,9 @@ import { hrisMeApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { QueryErrorState } from "@/components/ui/query-error-state";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import { toastError } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const MONTH_NAMES = [
@@ -20,10 +23,13 @@ function formatCurrency(n: number) {
 }
 
 function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => void }) {
-  const { data, isLoading } = useQuery({
+  const { data, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris-me-payslip-detail", runId],
     queryFn: () => hrisMeApi.getPayslipDetail(runId).then((r) => r.data),
   });
+  const earningComponents = data?.components.filter((component) =>
+    !["DEDUCTION", "BPJS", "TAX"].includes(component.component_type ?? "")
+  ) ?? [];
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
@@ -39,6 +45,7 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
                 </p>
               </>
             )}
+            {!data && <p className="text-base font-bold text-gray-900">Slip Gaji</p>}
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             <X size={16} />
@@ -47,6 +54,12 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
 
         {isLoading && (
           <div className="py-16 text-center text-sm text-gray-400">Memuat slip gaji...</div>
+        )}
+
+        {isError && (
+          <div className="p-5">
+            <QueryErrorState error={error} onRetry={() => refetch()} />
+          </div>
         )}
 
         {data && (
@@ -69,21 +82,23 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
               )}
             </div>
 
-            {/* Allowances */}
-            {data.components && data.components.filter((c) =>
-              c.component_type !== "DEDUCTION" && c.component_type !== "BPJS" && c.component_type !== "TAX"
-            ).length > 0 && (
+            {/* Earnings */}
+            {(earningComponents.length > 0 || data.gross_salary !== 0 || data.tax_allowance !== 0 || Boolean(data.thr_amount)) && (
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Penghasilan</p>
                 <div className="space-y-1.5">
-                  {data.components
-                    .filter((c) => c.component_type !== "DEDUCTION" && c.component_type !== "BPJS" && c.component_type !== "TAX")
-                    .map((c, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span className="text-gray-600">{c.component_name}</span>
-                        <span className="font-medium">{formatCurrency(c.amount)}</span>
-                      </div>
-                    ))}
+                  {earningComponents.map((c, i) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{c.component_name}</span>
+                      <span className="font-medium">{formatCurrency(c.amount)}</span>
+                    </div>
+                  ))}
+                  {data.tax_allowance !== 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Tunjangan Pajak</span>
+                      <span className="font-medium">{formatCurrency(data.tax_allowance)}</span>
+                    </div>
+                  )}
                   {data.thr_amount ? (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">THR</span>
@@ -91,9 +106,13 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
                     </div>
                   ) : null}
                 </div>
-                <div className="flex justify-between text-sm font-semibold border-t mt-2 pt-2">
-                  <span>Gaji Kotor</span>
+                <div className="flex justify-between text-xs text-gray-500 border-t mt-2 pt-2">
+                  <span>Gaji bruto reguler</span>
                   <span>{formatCurrency(data.gross_salary)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold mt-1">
+                  <span>Total Penghasilan</span>
+                  <span>{formatCurrency(data.total_earnings)}</span>
                 </div>
               </div>
             )}
@@ -110,16 +129,33 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
                   <span className="text-gray-600">BPJS Kes (Karyawan)</span>
                   <span className="font-medium text-red-600">- {formatCurrency(data.bpjs_kes_employee)}</span>
                 </div>
-                {data.pph21_amount > 0 && (
+                {data.pph21_amount !== 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">
-                      PPh 21 {data.pph21_method === "GROSS_UP" ? "(Ditanggung Perusahaan)" : ""}
+                      {data.pph21_amount < 0
+                        ? "Refund PPh 21"
+                        : `PPh 21 ${data.pph21_method === "GROSS_UP" ? "(Ditanggung Perusahaan)" : ""}`}
                     </span>
-                    <span className={cn("font-medium", data.pph21_method === "GROSS_UP" ? "text-gray-400" : "text-red-600")}>
-                      {data.pph21_method === "GROSS_UP" ? "ditanggung" : `- ${formatCurrency(data.pph21_amount)}`}
+                    <span className={cn(
+                      "font-medium",
+                      data.pph21_amount < 0
+                        ? "text-teal-600"
+                        : data.pph21_method === "GROSS_UP" ? "text-gray-400" : "text-red-600",
+                    )}>
+                      {data.pph21_amount < 0
+                        ? `+ ${formatCurrency(Math.abs(data.pph21_amount))}`
+                        : data.pph21_method === "GROSS_UP" ? "ditanggung" : `- ${formatCurrency(data.pph21_amount)}`}
                     </span>
                   </div>
                 )}
+                {data.components
+                  .filter((component) => ["DEDUCTION", "BPJS", "TAX"].includes(component.component_type ?? ""))
+                  .map((component, index) => (
+                    <div key={`${component.component_id ?? "legacy"}-${index}`} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{component.component_name}</span>
+                      <span className="font-medium text-red-600">- {formatCurrency(component.amount)}</span>
+                    </div>
+                  ))}
               </div>
             </div>
 
@@ -148,11 +184,15 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
 
             {/* Download PDF */}
             {data.pdf_url && (
-              <a href={data.pdf_url} target="_blank" rel="noopener noreferrer">
-                <Button className="w-full bg-teal-600 hover:bg-teal-700 border-teal-600 text-white text-sm">
-                  <Download size={14} className="mr-2" /> Unduh Slip PDF
-                </Button>
-              </a>
+              <Button
+                className="w-full bg-teal-600 hover:bg-teal-700 border-teal-600 text-white text-sm"
+                onClick={() => downloadAuthenticatedFile(
+                  data.pdf_url!,
+                  `slip-gaji-${data.period_label}.pdf`,
+                ).catch(() => toastError("Gagal mengunduh slip gaji"))}
+              >
+                <Download size={14} className="mr-2" /> Unduh Slip PDF
+              </Button>
             )}
           </div>
         )}
@@ -164,7 +204,7 @@ function SlipDetailModal({ runId, onClose }: { runId: number; onClose: () => voi
 export default function MyPayslipPage() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
 
-  const { data: payslips, isLoading } = useQuery({
+  const { data: payslips, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris-me-payslips"],
     queryFn: () => hrisMeApi.getPayslips().then((r) => r.data),
   });
@@ -175,6 +215,10 @@ export default function MyPayslipPage() {
 
       {isLoading && (
         <div className="py-12 text-center text-sm text-gray-400">Memuat...</div>
+      )}
+
+      {isError && (
+        <QueryErrorState error={error} onRetry={() => refetch()} />
       )}
 
       <div className="space-y-2">
@@ -192,7 +236,7 @@ export default function MyPayslipPage() {
                       {MONTH_NAMES[slip.month - 1]} {slip.year}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Kotor: {formatCurrency(slip.gross_salary)}
+                      Total penghasilan: {formatCurrency(slip.total_earnings)}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -212,7 +256,7 @@ export default function MyPayslipPage() {
           </button>
         ))}
 
-        {!isLoading && payslips?.length === 0 && (
+        {!isLoading && !isError && payslips?.length === 0 && (
           <div className="text-center py-12 text-sm text-gray-400">
             <Banknote size={36} className="mx-auto mb-3 opacity-30" />
             Slip gaji akan muncul di sini setelah payroll diproses

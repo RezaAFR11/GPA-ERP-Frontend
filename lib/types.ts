@@ -25,6 +25,22 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface PasswordChangeResponse extends TokenResponse {
+  message: string;
+}
+
+export interface WorkspaceBranding {
+  logo: string;
+  title: string;
+  subtitle: string;
+}
+
+export interface UserListSummary {
+  total: number;
+  active: number;
+  inactive: number;
+}
+
 export interface AppMenuPermission {
   key: string;
   label: string;
@@ -595,6 +611,7 @@ export interface WorkLocation {
   latitude: number;
   longitude: number;
   radius_meters: number;
+  timezone_name: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -685,6 +702,8 @@ export interface LeaveTypeCreate {
   max_days_per_year?: number | null;
   is_paid?: boolean;
   requires_approval?: boolean;
+  category?: LeaveType["category"];
+  requires_doctor_cert?: boolean;
 }
 
 export interface LeaveBalance {
@@ -708,6 +727,7 @@ export interface LeaveRequest {
   end_date: string;
   days: number;
   reason: string | null;
+  doctor_cert_url: string | null;
   status: LeaveRequestStatus;
   approval_chain: string[] | null;
   approval_step: number | null;
@@ -725,6 +745,12 @@ export interface LeaveRequestCreate {
   start_date: string;
   end_date: string;
   reason?: string;
+  doctor_cert_url?: string;
+}
+
+export interface LeaveDurationPreview {
+  days: number;
+  excluded_holidays: { date: string; name: string }[];
 }
 
 // ─── HRIS Types — Phase H3: Payroll ──────────────────────────────────────────
@@ -855,6 +881,7 @@ export interface Applicant {
   stage: ApplicantStage;
   cv_url: string | null;
   note: string | null;
+  employee_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -866,6 +893,16 @@ export interface ApplicantCreate {
   phone?: string;
   source?: ApplicantSource;
   note?: string;
+}
+
+export interface HireResult {
+  applicant: Applicant;
+  employee_id: number;
+  employee_no: string;
+  user_id: number | null;
+  user_email: string | null;
+  temp_password: string | null;
+  leave_balances_created: number;
 }
 
 export interface Interview {
@@ -933,7 +970,7 @@ export interface MyAttendanceResponse {
   employee_id: number;
   today: MyAttendanceRecord | null;
   clock_state: "not_clocked_in" | "clocked_in" | "clocked_out";
-  summary: { working_days: number; total_hours: number };
+  summary: { attendance_days: number; total_hours: number };
   records: MyAttendanceRecord[];
 }
 
@@ -956,9 +993,17 @@ export interface MyLeaveRequest {
   end_date: string;
   days: number;
   reason: string | null;
-  status: string;
+  status: LeaveRequestStatus;
+  doctor_cert_url: string | null;
+  current_approver_role: string | null;
   submitted_at: string | null;
-  approval_history: { actor: string; action: string; note?: string; at: string }[];
+  approval_history: {
+    actor: string;
+    role: string | null;
+    action: "submit" | "approve" | "reject" | string;
+    note?: string | null;
+    at: string | null;
+  }[];
 }
 
 export interface MyPayslipSummary {
@@ -967,6 +1012,7 @@ export interface MyPayslipSummary {
   month: number;
   period_label: string;
   gross_salary: number;
+  total_earnings: number;
   net_salary: number;
   bpjs_tk_employee: number;
   bpjs_kes_employee: number;
@@ -980,6 +1026,7 @@ export interface MyPayslipDetail extends MyPayslipSummary {
   bpjs_tk_employer: number;
   bpjs_kes_employer: number;
   pph21_method: string | null;
+  tax_allowance: number;
   employee: {
     id: number;
     employee_no: string;
@@ -988,9 +1035,10 @@ export interface MyPayslipDetail extends MyPayslipSummary {
     bank_account: string | null;
   };
   components: {
-    component_id: number;
+    component_id: number | null;
     component_name: string;
     component_type: string | null;
+    is_taxable?: boolean | null;
     amount: number;
   }[];
   pdf_url: string | null;
@@ -1017,11 +1065,12 @@ export interface HeadcountTrendItem {
 }
 
 export interface PkwtAlertItem {
-  employee_id: number;
+  id: number;
   employee_no: string;
   full_name: string;
+  dept: string | null;
   end_date: string;
-  days_remaining: number;
+  days_left: number;
 }
 
 export interface DeptAttendanceItem {
@@ -1035,6 +1084,7 @@ export interface HrisDashboardStats {
   probation: number;
   terminated_ytd: number;
   hired_ytd: number;
+  employment_type_counts: Record<string, number>;
   headcount_trend: HeadcountTrendItem[];
   pkwt_expiring_30d: number;
   pkwt_expiring_60d: number;

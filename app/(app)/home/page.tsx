@@ -12,6 +12,9 @@ import { useAuth, useRole } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
+import {
+  formatRecentTime, loadRecentModules, type RecentModuleEntry,
+} from "@/lib/recent-modules";
 
 // ── Time-aware Indonesian greeting ────────────────────────────────────────────
 function getGreeting(): string {
@@ -69,14 +72,6 @@ const SECTIONS: { key: Section; label: string; sub: string; dot: string }[] = [
 ];
 
 // ── Recently opened (static sample) ───────────────────────────────────────────
-const RECENTS = [
-  { href: "/spending",       label: "Spending",        color: "#DC2626", icon: CreditCard,   time: "5 mnt lalu"    },
-  { href: "/action-center",  label: "Action Center",   color: "#F59E0B", icon: Inbox,        time: "22 mnt lalu"   },
-  { href: "/hris/payroll",   label: "Penggajian",      color: "#EA580C", icon: Banknote,     time: "1 jam lalu"    },
-  { href: "/projects",       label: "Project Command", color: "#0D9488", icon: FolderKanban, time: "Kemarin 16:40" },
-  { href: "/hris/employees", label: "Data Karyawan",   color: "#0D9488", icon: Users,        time: "Kemarin 11:02" },
-];
-
 // ── Single launcher tile (horizontal, Variation A) ────────────────────────────
 function ModuleTile({ item, sectionLabel }: { item: ModuleItem; sectionLabel: string }) {
   const Icon = item.icon;
@@ -109,7 +104,7 @@ function ModuleTile({ item, sectionLabel }: { item: ModuleItem; sectionLabel: st
 }
 
 // ── Recent pill ───────────────────────────────────────────────────────────────
-function RecentPill({ item }: { item: typeof RECENTS[0] }) {
+function RecentPill({ item }: { item: ModuleItem & { time: string } }) {
   const Icon = item.icon;
   const tint = item.color + "20";
   return (
@@ -135,6 +130,7 @@ export default function HomePage() {
   const { isSelfService } = useRole();
   const router = useRouter();
   const [search, setSearch] = useState("");
+  const [recentEntries, setRecentEntries] = useState<RecentModuleEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const actionCenterCount = useActionCenterCount(canAccessMenu("action_center"));
 
@@ -142,6 +138,10 @@ export default function HomePage() {
   useEffect(() => {
     if (isSelfService) router.replace("/hris/me");
   }, [isSelfService, router]);
+
+  useEffect(() => {
+    if (user) setRecentEntries(loadRecentModules(user.id));
+  }, [user]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -160,7 +160,10 @@ export default function HomePage() {
       ? { ...m, badge: actionCenterCount }
       : m
     );
-  const visibleRecents = RECENTS.filter(r => visibleModules.some(m => m.href === r.href));
+  const visibleRecents = recentEntries.flatMap((entry) => {
+    const module = visibleModules.find((item) => item.href === entry.href);
+    return module ? [{ ...module, time: formatRecentTime(entry.openedAt) }] : [];
+  });
 
   const filtered = search.trim()
     ? visibleModules.filter(m =>
@@ -198,7 +201,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Recently opened ── */}
-      {!search && (
+      {!search && visibleRecents.length > 0 && (
         <div className="mb-8">
           <p className="text-[10px] font-semibold font-mono tracking-[0.16em] uppercase text-[#A8A498] mb-3">
             Terakhir dibuka

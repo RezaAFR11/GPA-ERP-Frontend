@@ -1,12 +1,14 @@
 "use client";
 
+import type { WorkspaceBranding } from "./types";
+
 export const DEFAULT_BRANDING = {
   logo: "GP",
   title: "GPA",
   subtitle: "Cost Control",
 };
 
-export type Branding = typeof DEFAULT_BRANDING;
+export type Branding = WorkspaceBranding;
 
 export function getBranding(): Branding {
   if (typeof window === "undefined") return DEFAULT_BRANDING;

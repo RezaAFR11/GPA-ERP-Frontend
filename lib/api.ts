@@ -4,8 +4,9 @@ import type {
   CostCentre, CostCentreCreate, CostCode, CostCodeCreate, Expense, ExpenseStats,
   InventoryItem, InventoryItemCreate, InventoryItemUpdate, InventorySummary, InventoryTxn, InventoryTxnCreate,
   LegalDocument, LegalDocCreate, MessageResponse,
-  MenuPermissionsResponse, Notification, PaginatedResponse, PettyCashReport, Project,
-  ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserSummary,
+  MenuPermissionsResponse, Notification, PaginatedResponse, PasswordChangeResponse, PettyCashReport, Project,
+  ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserListSummary, UserSummary,
+  WorkspaceBranding,
   ReceivablesSummary,
   // HRIS H1
   BulkAccountResponse,
@@ -13,12 +14,12 @@ import type {
   JobGrade, JobGradeCreate,
   // HRIS H2
   AttendanceRecord, AttendanceSummaryItem, WorkLocation,
-  LeaveType, LeaveTypeCreate, LeaveBalance, LeaveRequest, LeaveRequestCreate,
+  LeaveType, LeaveTypeCreate, LeaveBalance, LeaveRequest, LeaveRequestCreate, LeaveDurationPreview,
   // HRIS H3
   SalaryComponent, SalaryComponentCreate, SalaryAssignment, SalaryAssignmentCreate,
   PayrollPeriod, PayrollRun, PayslipSlip,
   // HRIS H4
-  JobPosting, JobPostingCreate, Applicant, ApplicantCreate, Interview, OnboardingTask,
+  JobPosting, JobPostingCreate, Applicant, ApplicantCreate, HireResult, Interview, OnboardingTask,
   // HRIS Self-service
   MyProfile, MyAttendanceResponse, MyLeaveBalance, MyLeaveRequest,
   MyPayslipSummary, MyPayslipDetail, MyDocumentItem,
@@ -33,23 +34,22 @@ import type {
 } from "./types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
-
-export const TOKEN_KEY = "gpa_access_token";
+const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
 
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { "Content-Type": "application/json" },
-  withCredentials: false,
+  withCredentials: true,
 });
 
-// Attach Bearer token from localStorage on every request
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) config.headers["Authorization"] = `Bearer ${token}`;
-  }
-  return config;
-});
+export const authenticatedFilesApi = {
+  fetch: (fileUrl: string) => {
+    const url = fileUrl.startsWith("http")
+      ? fileUrl
+      : `${BACKEND_ORIGIN}/${fileUrl.replace(/^\/+/, "")}`;
+    return api.get<Blob>(url, { responseType: "blob" });
+  },
+};
 
 // On 401, redirect to /login — but only if not already there,
 // to avoid an infinite reload loop on the initial unauthenticated load.
@@ -74,19 +74,12 @@ export const authApi = {
     const form = new URLSearchParams();
     form.append("username", email);
     form.append("password", password);
-    const res = await api.post<TokenResponse>("/auth/login", form, {
+    return api.post<TokenResponse>("/auth/login", form, {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
-    if (typeof window !== "undefined") {
-      localStorage.setItem(TOKEN_KEY, res.data.access_token);
-    }
-    return res;
   },
   me: () => api.get<User>("/auth/me"),
-  logout: () => {
-    if (typeof window !== "undefined") localStorage.removeItem(TOKEN_KEY);
-    return api.post<{ detail: string }>("/auth/logout");
-  },
+  logout: () => api.post<{ detail: string }>("/auth/logout"),
   menuPermissions: () => api.get<MenuPermissionsResponse>("/auth/menu-permissions"),
 };
 
@@ -149,7 +142,7 @@ export const receivablesApi = {
 export const expensesApi = {
   list: (params?: {
     project_id?: number; status?: string; my_queue?: boolean; search?: string;
-    skip?: number; limit?: number;
+    currency?: string; skip?: number; limit?: number;
   }) => api.get<PaginatedResponse<Expense>>("/expenses", { params }),
   stats: (params?: { project_id?: number; date_from?: string; date_to?: string }) =>
     api.get<ExpenseStats>("/expenses/stats", { params }),
@@ -182,6 +175,9 @@ export const expensesApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+  export: (params?: {
+    project_id?: number; status?: string; date_from?: string; date_to?: string; currency?: string;
+  }) => api.get<Blob>("/expenses/export", { params, responseType: "blob" }),
 };
 
 export const pettyCashReportsApi = {
@@ -200,6 +196,10 @@ export const pettyCashReportsApi = {
 // ─── Reports ──────────────────────────────────────────────────────────────────
 
 export const reportsApi = {
+  dashboardTrend: (currency: string) => api.get<{
+    months: { month: string; spent: number; revenue: number }[];
+    pending_expenses: number;
+  }>("/reports/dashboard-trend", { params: { currency } }),
   payrollSummary: (year: number, month: number) =>
     api.get<Blob>("/reports/payroll-summary", { params: { year, month }, responseType: "blob" }),
   projectFinancial: (year?: number, status?: string) =>
@@ -238,7 +238,7 @@ export const legalApi = {
   delete: (id: number) => api.delete<MessageResponse>(`/legal/${id}`),
   downloadPdf: (id: number) =>
     api.get<Blob>(`/legal/${id}/pdf`, { responseType: "blob" }),
-  mdSignatureStatus: () => api.get<{ exists: boolean; path: string }>("/legal/signature/md"),
+  mdSignatureStatus: () => api.get<{ exists: boolean }>("/legal/signature/md"),
   uploadMdSignature: (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -283,16 +283,24 @@ export const searchApi = {
 
 export const usersApi = {
   list:   () => api.get<User[]>("/users"),
+  summary: () => api.get<UserListSummary>("/users/summary"),
   create: (data: UserCreate) => api.post<User>("/users", data),
   roles:  () => api.get<{ id: number; name: string }[]>("/users/roles"),
   updateMe: (data: { full_name: string }) =>
     api.patch<User>("/users/me", data),
   updatePassword: (data: { current_password: string; new_password: string }) =>
-    api.patch<{ message: string }>("/users/me/password", data),
+    api.patch<PasswordChangeResponse>("/users/me/password", data),
   update: (id: number, data: { role_id?: number; is_active?: boolean; full_name?: string }) =>
     api.patch<User>(`/users/${id}`, data),
   resetPassword: (id: number) =>
     api.post<{ message: string; temp_password: string }>(`/users/${id}/reset-password`),
+  deactivate: (id: number) => api.delete<{ message: string }>(`/users/${id}`),
+};
+
+export const settingsApi = {
+  branding: () => api.get<WorkspaceBranding>("/settings/branding"),
+  updateBranding: (data: WorkspaceBranding) =>
+    api.put<WorkspaceBranding>("/settings/branding", data),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -378,7 +386,7 @@ export const hrisAttendanceApi = {
   manualCreate: (data: {
     employee_id: number; date: string;
     clock_in?: string; clock_out?: string;
-    is_weekend?: boolean; is_holiday?: boolean; note?: string;
+    note?: string;
   }) => api.post<AttendanceRecord>("/hris/attendance", data),
 
   clockIn: (payload: {
@@ -392,25 +400,25 @@ export const hrisAttendanceApi = {
     if (payload.accuracy  != null) fd.append("accuracy",  String(payload.accuracy));
     if (payload.note)              fd.append("note",      payload.note);
     if (payload.selfie)            fd.append("selfie",    payload.selfie);
+    fd.append("timezone_offset_minutes", String(new Date().getTimezoneOffset()));
     return api.post<AttendanceRecord>("/hris/attendance/clock-in", fd, {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
 
   clockOut: (params?: {
-    employee_id?: number; is_holiday?: boolean; is_weekend?: boolean; note?: string;
-  }) => api.post<AttendanceRecord>("/hris/attendance/clock-out", null, { params }),
+    employee_id?: number; note?: string;
+  }) => api.post<AttendanceRecord>("/hris/attendance/clock-out", null, {
+    params: { ...params, timezone_offset_minutes: new Date().getTimezoneOffset() },
+  }),
 
   export: (params?: {
     date_from?: string; date_to?: string; dept_id?: number;
     employee_id?: number; fmt?: "xlsx" | "csv";
-  }) => api.get("/hris/attendance/export", { params, responseType: "blob" }),
-
-  /** [DEBUG] Delete today's attendance record so clock-in can be re-tested */
-  debugResetToday: (employee_id?: number) =>
-    api.delete<{ detail: string }>("/hris/attendance/debug-reset", {
-      params: employee_id != null ? { employee_id } : undefined,
-    }),
+  }) => api.get("/hris/attendance/export", {
+    params: { ...params, timezone_offset_minutes: new Date().getTimezoneOffset() },
+    responseType: "blob",
+  }),
 };
 
 // ─── HRIS — Work Locations ─────────────────────────────────────────────────────
@@ -422,13 +430,13 @@ export const hrisWorkLocationApi = {
   create: (data: {
     name: string; location_type: string;
     latitude: number; longitude: number;
-    radius_meters: number; is_active?: boolean;
+    radius_meters: number; timezone_name: string; is_active?: boolean;
   }) => api.post<WorkLocation>("/hris/work-locations", data),
 
   update: (id: number, data: Partial<{
     name: string; location_type: string;
     latitude: number; longitude: number;
-    radius_meters: number; is_active: boolean;
+    radius_meters: number; timezone_name: string; is_active: boolean;
   }>) => api.patch<WorkLocation>(`/hris/work-locations/${id}`, data),
 
   assignToEmployee: (employeeId: number, workLocationId: number | null) =>
@@ -471,6 +479,24 @@ export const hrisLeaveApi = {
   create: (data: LeaveRequestCreate) =>
     api.post<LeaveRequest>("/hris/leave-requests", data),
 
+  previewDuration: (startDate: string, endDate: string) =>
+    api.get<LeaveDurationPreview>("/hris/leave-requests/duration-preview", {
+      params: { start_date: startDate, end_date: endDate },
+    }),
+
+  uploadDoctorCertificate: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<{ file_url: string }>("/hris/leave-requests/doctor-certificate", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+
+  discardDoctorCertificate: (fileUrl: string) =>
+    api.delete<MessageResponse>("/hris/leave-requests/doctor-certificate", {
+      params: { file_url: fileUrl },
+    }),
+
   approve: (id: number, note?: string) =>
     api.post<LeaveRequest>(`/hris/leave-requests/${id}/approve`, { note }),
 
@@ -499,6 +525,8 @@ export const hrisPayrollApi = {
     api.post<PayrollPeriod>("/hris/payroll/periods", { year, month }),
   lockPeriod: (id: number) =>
     api.post<PayrollPeriod>(`/hris/payroll/periods/${id}/lock`),
+  unlockPeriod: (id: number) =>
+    api.post<PayrollPeriod>(`/hris/payroll/periods/${id}/unlock`),
   calculate: (id: number, pph21_method?: string, include_thr?: boolean) =>
     api.post<PayrollRun[]>(`/hris/payroll/periods/${id}/calculate`, null, {
       params: { pph21_method, include_thr },
@@ -545,10 +573,12 @@ export const hrisRecruitmentApi = {
   moveStage: (id: number, stage: string) =>
     api.patch<Applicant>(`/hris/applicants/${id}/stage`, null, { params: { stage } }),
   hire: (id: number, data: { department_id?: number; grade_id?: number; join_date?: string; create_user?: boolean }) =>
-    api.post<Applicant>(`/hris/applicants/${id}/hire`, data),
+    api.post<HireResult>(`/hris/applicants/${id}/hire`, data),
 
   createInterview: (data: { applicant_id: number; scheduled_at: string; interviewer_id?: number; notes?: string }) =>
     api.post<Interview>("/hris/interviews", data),
+  listInterviews: (applicant_id?: number) =>
+    api.get<Interview[]>("/hris/interviews", { params: { applicant_id } }),
   updateInterview: (id: number, result: string, notes?: string) =>
     api.patch<Interview>(`/hris/interviews/${id}`, null, { params: { result, notes } }),
 
@@ -566,11 +596,13 @@ export const hrisMeApi = {
   getProfile: () =>
     api.get<MyProfile>("/hris/me"),
   getAttendance: (year?: number, month?: number) =>
-    api.get<MyAttendanceResponse>("/hris/me/attendance", { params: { year, month } }),
+    api.get<MyAttendanceResponse>("/hris/me/attendance", {
+      params: { year, month, timezone_offset_minutes: new Date().getTimezoneOffset() },
+    }),
   getLeaveBalance: (year?: number) =>
     api.get<MyLeaveBalance[]>("/hris/me/leave-balance", { params: { year } }),
   getLeaveRequests: (status?: string) =>
-    api.get<MyLeaveRequest[]>("/hris/me/leave-requests", { params: { status } }),
+    api.get<MyLeaveRequest[]>("/hris/me/leave-requests", { params: { status, limit: 50 } }),
   getPayslips: () =>
     api.get<MyPayslipSummary[]>("/hris/me/payslips"),
   getPayslipDetail: (run_id: number) =>

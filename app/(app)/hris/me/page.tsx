@@ -1,19 +1,19 @@
 ﻿"use client";
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Fingerprint, CalendarDays, Banknote, Clock, CheckCircle2,
   LogIn, MapPin, ChevronRight, TimerOff, FolderOpen, Edit3,
 } from "lucide-react";
-import { useState as useStateInner } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { hrisMeApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import ClockInModal from "@/app/(app)/hris/attendance/components/clock-in-modal";
+import { QueryErrorState } from "@/components/ui/query-error-state";
 import { cn } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 
@@ -30,9 +30,8 @@ const CHANGEABLE_FIELDS = [
 ];
 
 function DataChangeButton() {
-  const qc = useQueryClient();
-  const [open, setOpen] = useStateInner(false);
-  const [form, setForm] = useStateInner({ field_name: "phone", new_value: "", reason: "" });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ field_name: "phone", new_value: "", reason: "" });
 
   const submitMut = useMutation({
     mutationFn: () => hrisMeApi.submitDataChangeRequest({
@@ -75,12 +74,14 @@ function DataChangeButton() {
             <label className="block text-xs font-medium text-gray-600 mb-1">Nilai Baru</label>
             <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               value={form.new_value} onChange={e => setForm(f => ({ ...f, new_value: e.target.value }))}
+              maxLength={255}
               placeholder="Masukkan nilai baru..." />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Alasan Perubahan (opsional)</label>
             <textarea rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 resize-none"
               value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              maxLength={1000}
               placeholder="cth: nomor rekening lama sudah tidak aktif" />
           </div>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
@@ -116,6 +117,7 @@ function formatCurrency(n: number) {
 }
 
 export default function HrisMePage() {
+  const { canAccessMenu } = useAuth();
   const [showClockIn, setShowClockIn] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null);
@@ -145,30 +147,66 @@ export default function HrisMePage() {
     setShowInstallBanner(false);
   }
 
-  const { data: profile } = useQuery({
+  const canAttendance = canAccessMenu("hris_attendance");
+  const canLeave = canAccessMenu("hris_leave");
+  const canPayslip = canAccessMenu("hris_my_payslip");
+
+  const {
+    data: profile,
+    error: profileError,
+    isError: profileIsError,
+    refetch: refetchProfile,
+  } = useQuery({
     queryKey: ["hris-me-profile"],
     queryFn: () => hrisMeApi.getProfile().then((r) => r.data),
   });
 
-  const { data: attendance, refetch: refetchAttendance } = useQuery({
+  const {
+    data: attendance,
+    error: attendanceError,
+    isError: attendanceIsError,
+    isLoading: attendanceIsLoading,
+    refetch: refetchAttendance,
+  } = useQuery({
     queryKey: ["hris-me-attendance", today.getFullYear(), today.getMonth() + 1],
     queryFn: () => hrisMeApi.getAttendance(today.getFullYear(), today.getMonth() + 1).then((r) => r.data),
+    enabled: canAttendance,
   });
 
-  const { data: leaveBalances } = useQuery({
+  const {
+    data: leaveBalances,
+    error: leaveError,
+    isError: leaveIsError,
+    refetch: refetchLeave,
+  } = useQuery({
     queryKey: ["hris-me-leave-balance"],
     queryFn: () => hrisMeApi.getLeaveBalance().then((r) => r.data),
+    enabled: canLeave,
   });
 
-  const { data: payslips } = useQuery({
+  const {
+    data: payslips,
+    error: payslipError,
+    isError: payslipIsError,
+    refetch: refetchPayslips,
+  } = useQuery({
     queryKey: ["hris-me-payslips"],
     queryFn: () => hrisMeApi.getPayslips().then((r) => r.data),
+    enabled: canPayslip,
   });
 
   const clockState   = attendance?.clock_state ?? "not_clocked_in";
   const todayRecord  = attendance?.today;
   const latestPayslip = payslips?.[0];
   const annualLeave  = leaveBalances?.find((b) => b.code === "TAHUNAN");
+
+  if (profileIsError) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-6">
+        <QueryErrorState error={profileError} onRetry={() => refetchProfile()} />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
@@ -208,7 +246,13 @@ export default function HrisMePage() {
       </div>
 
       {/* Clock-in Card */}
-      <Card className={cn(
+      {canAttendance && attendanceIsLoading && (
+        <Card className="border p-4 text-sm text-gray-400">Memuat status absensi...</Card>
+      )}
+      {canAttendance && attendanceIsError && (
+        <QueryErrorState error={attendanceError} onRetry={() => refetchAttendance()} compact />
+      )}
+      {canAttendance && attendance && <Card className={cn(
         "border-2 transition-colors",
         clockState === "clocked_in"     && "border-teal-400 bg-teal-50",
         clockState === "clocked_out"    && "border-gray-200 bg-gray-50",
@@ -267,8 +311,8 @@ export default function HrisMePage() {
           {attendance && (
             <div className="mt-3 pt-3 border-t border-dashed flex gap-6 text-xs text-gray-500">
               <div>
-                <span className="font-semibold text-gray-700">{attendance.summary.working_days}</span>
-                {" "}hari kerja
+                <span className="font-semibold text-gray-700">{attendance.summary.attendance_days}</span>
+                {" "}hari hadir
               </div>
               <div>
                 <span className="font-semibold text-gray-700">{attendance.summary.total_hours.toFixed(1)}</span>
@@ -277,19 +321,19 @@ export default function HrisMePage() {
             </div>
           )}
         </div>
-      </Card>
+      </Card>}
 
       {/* Quick Links Grid */}
       <div className="grid grid-cols-3 gap-3">
-        <Link href="/hris/me/attendance">
+        {canAttendance && <Link href="/hris/me/attendance">
           <Card className="border hover:border-teal-400 hover:bg-teal-50/40 transition-all cursor-pointer h-full">
             <div className="p-3 flex flex-col items-center gap-1.5 text-center">
               <Fingerprint size={22} className="text-teal-600" />
               <span className="text-xs font-medium text-gray-700">Riwayat Absensi</span>
             </div>
           </Card>
-        </Link>
-        <Link href="/hris/me/leave">
+        </Link>}
+        {canLeave && <Link href="/hris/me/leave">
           <Card className="border hover:border-purple-400 hover:bg-purple-50/40 transition-all cursor-pointer h-full">
             <div className="p-3 flex flex-col items-center gap-1.5 text-center">
               <CalendarDays size={22} className="text-purple-600" />
@@ -301,34 +345,41 @@ export default function HrisMePage() {
               )}
             </div>
           </Card>
-        </Link>
-        <Link href="/hris/me/payslip">
+        </Link>}
+        {canPayslip && <Link href="/hris/me/payslip">
           <Card className="border hover:border-orange-400 hover:bg-orange-50/40 transition-all cursor-pointer h-full">
             <div className="p-3 flex flex-col items-center gap-1.5 text-center">
               <Banknote size={22} className="text-orange-600" />
               <span className="text-xs font-medium text-gray-700">Slip Gaji</span>
             </div>
           </Card>
-        </Link>
+        </Link>}
         {/* Enhancement Pack — new quick actions */}
-        <Link href="/hris/me/overtime">
+        {canAttendance && <Link href="/hris/me/overtime">
           <Card className="border hover:border-amber-400 hover:bg-amber-50/40 transition-all cursor-pointer h-full">
             <div className="p-3 flex flex-col items-center gap-1.5 text-center">
               <TimerOff size={22} className="text-amber-600" />
               <span className="text-xs font-medium text-gray-700">Lembur</span>
             </div>
           </Card>
-        </Link>
-        <Link href="/hris/me/documents">
+        </Link>}
+        {canPayslip && <Link href="/hris/me/documents">
           <Card className="border hover:border-blue-400 hover:bg-blue-50/40 transition-all cursor-pointer h-full">
             <div className="p-3 flex flex-col items-center gap-1.5 text-center">
               <FolderOpen size={22} className="text-blue-600" />
               <span className="text-xs font-medium text-gray-700">Dokumen Saya</span>
             </div>
           </Card>
-        </Link>
+        </Link>}
         <DataChangeButton />
       </div>
+
+      {canLeave && leaveIsError && (
+        <QueryErrorState error={leaveError} onRetry={() => refetchLeave()} compact />
+      )}
+      {canPayslip && payslipIsError && (
+        <QueryErrorState error={payslipError} onRetry={() => refetchPayslips()} compact />
+      )}
 
       {/* Latest Payslip */}
       {latestPayslip && (
@@ -345,7 +396,7 @@ export default function HrisMePage() {
                     {formatCurrency(latestPayslip.net_salary)}
                   </p>
                   <p className="text-[10px] text-gray-400">
-                    Gaji Kotor: {formatCurrency(latestPayslip.gross_salary)}
+                    Total penghasilan: {formatCurrency(latestPayslip.total_earnings)}
                   </p>
                 </div>
                 <ChevronRight size={18} className="text-gray-400" />

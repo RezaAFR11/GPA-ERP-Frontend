@@ -56,8 +56,7 @@ export default function NewExpenseModal({ open, onClose }: Props) {
   const uploadMutation = useMutation({
     mutationFn: (file: File) => expensesApi.uploadReceipt(file),
     onSuccess: (res) => {
-      const fullUrl = `${process.env.NEXT_PUBLIC_API_URL?.replace("/api", "")}${res.data.url}`;
-      setValue("receipt_url", fullUrl, { shouldValidate: true });
+      setValue("receipt_url", res.data.url, { shouldValidate: true });
       setUploadedFilename(res.data.filename || res.data.url.split("/").pop() || "file");
       toastSuccess("Receipt uploaded", res.data.filename ?? "");
     },

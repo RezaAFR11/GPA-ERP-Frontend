@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Fingerprint, Download, PlusCircle, Clock, CheckCircle2, AlertCircle,
-  ChevronLeft, ChevronRight, Search, Trash2, LogIn,
+  ChevronLeft, ChevronRight, Search, LogIn,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { useRole } from "@/lib/auth-context";
 import type { AttendanceRecord, AttendanceSummaryItem, Employee, WorkGroup, OvertimeRequest } from "@/lib/types";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { SelfieModal } from "@/components/hris/SelfieModal";
+import { AuthenticatedImage } from "@/components/ui/authenticated-image";
 import { cn } from "@/lib/utils";
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
@@ -311,7 +312,8 @@ function ManualModal({
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 export default function AttendancePage() {
   const qc = useQueryClient();
-  const { isHR, isSuperAdmin } = useRole();
+  const { isHR, isMD } = useRole();
+  const canManageAttendance = isHR || isMD;
   const now = new Date();
   const [year,  setYear]  = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -323,7 +325,6 @@ export default function AttendancePage() {
   const [showClockIn,  setShowClockIn]  = useState(false);
   const [showManual,   setShowManual]   = useState(false);
   const [clockInEmp,   setClockInEmp]   = useState<Employee | null>(null);
-  const [debugEmpId,   setDebugEmpId]   = useState<number | "">("") ;
   const [selfieRec,    setSelfieRec]    = useState<AttendanceRecord | null>(null);
 
   const dateFrom = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -364,19 +365,6 @@ export default function AttendancePage() {
   const clockOutMut = useMutation({
     mutationFn: (empId: number) => hrisAttendanceApi.clockOut({ employee_id: empId }),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["hris", "attendance"] }),
-  });
-
-  /* Debug: reset today's attendance */
-  const debugResetMut = useMutation({
-    mutationFn: (empId?: number) => hrisAttendanceApi.debugResetToday(empId),
-    onSuccess: (res) => {
-      alert(res.data.detail);
-      qc.invalidateQueries({ queryKey: ["hris", "attendance"] });
-    },
-    onError: (e: unknown) => {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Reset gagal";
-      alert(`Error: ${msg}`);
-    },
   });
 
   /* Export */
@@ -445,11 +433,11 @@ export default function AttendancePage() {
             <Download size={14} className="mr-1.5" />
             {exporting ? "Mengunduh…" : "Export Excel"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setShowManual(true)}
+          {canManageAttendance && <Button variant="ghost" size="sm" onClick={() => setShowManual(true)}
             className="text-gray-700 border border-gray-200">
             <PlusCircle size={14} className="mr-1.5" /> Manual
-          </Button>
-          <div className="flex items-center gap-1.5">
+          </Button>}
+          {canManageAttendance && <div className="flex items-center gap-1.5">
             <select
               className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500 max-w-[180px]"
               value={clockInEmp?.id ?? ""}
@@ -470,45 +458,9 @@ export default function AttendancePage() {
             >
               <Clock size={14} className="mr-1.5" /> Clock-In
             </Button>
-          </div>
+          </div>}
         </div>
       </div>
-
-      {/* ── DEBUG PANEL (SA only) ──────────────────────────────────────────── */}
-      {isSuperAdmin && (
-        <div className="rounded-xl border border-dashed border-red-300 bg-red-50 px-4 py-3">
-          <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <Trash2 size={12} /> Debug — Reset Attendance
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={debugEmpId}
-              onChange={(e) => setDebugEmpId(e.target.value ? Number(e.target.value) : "")}
-              className="text-xs border border-red-200 bg-white rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-400 text-gray-700 min-w-[180px]"
-            >
-              <option value="">— Pilih karyawan —</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.employee_no} · {emp.full_name}
-                </option>
-              ))}
-            </select>
-            <button
-              disabled={!debugEmpId || debugResetMut.isPending}
-              onClick={() => {
-                if (!debugEmpId) return;
-                if (!confirm(`Reset absensi hari ini untuk karyawan #${debugEmpId}?`)) return;
-                debugResetMut.mutate(Number(debugEmpId));
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-40 transition-colors"
-            >
-              <Trash2 size={12} />
-              {debugResetMut.isPending ? "Menghapus…" : "Reset Hari Ini"}
-            </button>
-            <span className="text-[10px] text-red-400 italic">Hanya untuk testing — hapus record clock-in/out hari ini</span>
-          </div>
-        </div>
-      )}
 
       {/* Period navigation */}
       <Card>
@@ -532,7 +484,7 @@ export default function AttendancePage() {
               { value: "list",     label: "Detail" },
               { value: "summary",  label: "Ringkasan" },
               { value: "overtime", label: "Lembur Diajukan" },
-            ] as const).map(t => (
+            ] as const).filter(t => t.value !== "overtime" || canManageAttendance).map(t => (
               <button key={t.value} onClick={() => setTab(t.value)}
                 className={cn(
                   "px-3 py-1 rounded-md text-xs font-medium transition-colors",
@@ -639,9 +591,8 @@ export default function AttendancePage() {
                                       className="group relative"
                                       title="Lihat selfie"
                                     >
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={`${(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace("/api", "")}/${rec.selfie_url}`}
+                                      <AuthenticatedImage
+                                        src={rec.selfie_url}
                                         alt="selfie"
                                         className="w-8 h-8 rounded-full object-cover ring-2 ring-white shadow group-hover:ring-purple-400 transition-all"
                                       />
@@ -657,7 +608,7 @@ export default function AttendancePage() {
                                   )}
                                 </td>
                                 <td className="px-4 py-3">
-                                  {!hasClockOut && rec.clock_in && (
+                                  {canManageAttendance && !hasClockOut && rec.clock_in && (
                                     <button
                                       onClick={() => clockOutMut.mutate(rec.employee_id)}
                                       disabled={clockOutMut.isPending}
@@ -700,7 +651,6 @@ export default function AttendancePage() {
                     const totalOT = (Number(rec.hours_overtime_weekday ?? 0) +
                       Number(rec.hours_overtime_weekend ?? 0) + Number(rec.hours_overtime_holiday ?? 0));
                     const hasClockOut = !!rec.clock_out;
-                    const selfieBase = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api").replace("/api", "");
                     return (
                       <Card key={rec.id}>
                         <div className="p-3">
@@ -712,9 +662,8 @@ export default function AttendancePage() {
                                 className="relative flex-shrink-0"
                                 title="Lihat selfie"
                               >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={`${selfieBase}/${rec.selfie_url}`}
+                                <AuthenticatedImage
+                                  src={rec.selfie_url}
                                   alt="selfie"
                                   className="w-10 h-10 rounded-full object-cover ring-2 ring-white shadow"
                                 />
@@ -769,7 +718,7 @@ export default function AttendancePage() {
                                   {rec.source}
                                 </span>
                                 {locationChip(rec)}
-                                {!hasClockOut && rec.clock_in && (
+                                {canManageAttendance && !hasClockOut && rec.clock_in && (
                                   <button
                                     onClick={() => clockOutMut.mutate(rec.employee_id)}
                                     disabled={clockOutMut.isPending}
@@ -866,22 +815,22 @@ export default function AttendancePage() {
       )}
 
       {/* TAB: Lembur Diajukan */}
-      {tab === "overtime" && <OvertimeApprovalPanel />}
+      {canManageAttendance && tab === "overtime" && <OvertimeApprovalPanel />}
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
-      <ClockInModal
+      {canManageAttendance && <ClockInModal
         open={showClockIn}
         onClose={() => setShowClockIn(false)}
         employee={clockInEmp}
         onSuccess={() => qc.invalidateQueries({ queryKey: ["hris", "attendance"] })}
-      />
+      />}
 
-      <ManualModal
+      {canManageAttendance && <ManualModal
         open={showManual}
         onClose={() => setShowManual(false)}
         employees={employees}
         onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "attendance"] })}
-      />
+      />}
 
       {selfieRec && selfieRec.selfie_url && (() => {
         const emp = employees.find(e => e.id === selfieRec.employee_id);

@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { ProjectStatusBadge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { toastError } from "@/lib/hooks/use-toast";
 import type { Project, ProjectStatus, Expense, AccountReceivable } from "@/lib/types";
 
 const STATUS_OPTS: ProjectStatus[] = ["active", "on_hold", "completed", "cancelled"];
@@ -343,21 +345,12 @@ function DocumentsTab({ projectId }: { projectId: number }) {
     queryFn: () => projectsApi.documents(projectId).then((r) => r.data),
   });
 
-  function openDoc(docId: number, title: string) {
-    fetch(projectsApi.documentUrl(projectId, docId), { credentials: "include" })
-      .then((r) => r.blob())
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const opened = window.open(url, "_blank", "noopener,noreferrer");
-        if (!opened) {
-          const a = document.createElement("a");
-          a.href = url;
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          a.title = title;
-          a.click();
-        }
-      });
+  async function openDoc(docId: number, title: string) {
+    try {
+      await openAuthenticatedFile(projectsApi.documentUrl(projectId, docId));
+    } catch {
+      toastError("Document unavailable", `Could not open ${title}`);
+    }
   }
 
   return (

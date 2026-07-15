@@ -6,8 +6,8 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
-import { expensesApi, projectsApi, reportsApi } from "@/lib/api";
-import { formatCurrency, formatCompact, pct, getCurrencySymbol } from "@/lib/utils";
+import { expensesApi, hrisAttendanceApi, projectsApi, reportsApi } from "@/lib/api";
+import { formatCurrency, formatCompact, pct, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,8 +15,6 @@ import { cn } from "@/lib/utils";
 import { toastError } from "@/lib/hooks/use-toast";
 import { useAuth, useRole } from "@/lib/auth-context";
 import type { Expense, Project } from "@/lib/types";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
 const TABS = ["Overview", "Spending", "Margin", "Unduh Laporan"] as const;
 type Tab = typeof TABS[number];
@@ -50,7 +48,7 @@ async function loadAllProjects(): Promise<Project[]> {
   }
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label, currencySymbol }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-xs text-white shadow-lg">
@@ -59,7 +57,7 @@ function CustomTooltip({ active, payload, label }: any) {
         <p key={p.name} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-sm" style={{ background: p.color }} />
           <span className="text-gray-400">{p.name}:</span>
-          <span className="font-mono">{getCurrencySymbol()}{formatCompact(p.value)}</span>
+          <span className="font-mono">{currencySymbol}{formatCompact(p.value)}</span>
         </p>
       ))}
     </div>
@@ -82,10 +80,13 @@ async function downloadBlob(promise: Promise<{ data: Blob }>, filename: string) 
 
 function DownloadTab() {
   const { canAccessMenu } = useAuth();
-  const { isFinance, isMD, isCostControl, isHR } = useRole();
+  const { isFinance, isMD, isPM, isCostControl, isHR } = useRole();
   const canPayroll  = isFinance || isMD;                 // payroll-summary: FINANCE/MD/SUPER_ADMIN
   const canProjFin  = isMD || isCostControl || isFinance; // project-financial: MD/COST_CONTROL/FINANCE/SUPER_ADMIN
   const canPettyExport = (isFinance || isHR) && canAccessMenu("petty_cash");
+  const canAttendance = canAccessMenu("hris_attendance") && (
+    isPM || isFinance || isCostControl || isHR
+  );
 
   const thisYear  = new Date().getFullYear();
   const thisMonth = new Date().getMonth() + 1;
@@ -120,22 +121,15 @@ function DownloadTab() {
   async function handleExpenses() {
     setExpLoading(true);
     try {
-      const token = localStorage.getItem("gpa_access_token");
-      const params = new URLSearchParams();
-      if (expDateFrom) params.append("date_from", expDateFrom);
-      if (expDateTo)   params.append("date_to",   expDateTo);
-      if (expStatus)   params.append("status",    expStatus);
-      const res = await fetch(`${BASE_URL}/expenses/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href = url;
-      a.download = `gpa-expenses-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadBlob(
+        expensesApi.export({
+          date_from: expDateFrom || undefined,
+          date_to: expDateTo || undefined,
+          status: expStatus || undefined,
+          currency: getStoredCurrency(),
+        }),
+        `gpa-expenses-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Export gagal");
     } finally {
@@ -146,22 +140,19 @@ function DownloadTab() {
   async function handleAttendance() {
     setAttLoading(true);
     try {
-      const token = localStorage.getItem("gpa_access_token");
-      const params = new URLSearchParams();
-      if (attYear)  params.append("year",        attYear);
-      if (attMonth) params.append("month",       attMonth);
-      if (attEmpId) params.append("employee_id", attEmpId);
-      const res = await fetch(`${BASE_URL}/hris/attendance/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href = url;
-      a.download = `absensi-${attYear}-${String(attMonth).padStart(2, "0")}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const year = Number(attYear);
+      const month = Number(attMonth);
+      const monthText = String(month).padStart(2, "0");
+      const lastDay = new Date(year, month, 0).getDate();
+      await downloadBlob(
+        hrisAttendanceApi.export({
+          date_from: `${year}-${monthText}-01`,
+          date_to: `${year}-${monthText}-${String(lastDay).padStart(2, "0")}`,
+          employee_id: attEmpId ? Number(attEmpId) : undefined,
+          fmt: "xlsx",
+        }),
+        `absensi-${attYear}-${monthText}.xlsx`,
+      );
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Export gagal");
     } finally {
@@ -265,6 +256,7 @@ function DownloadTab() {
       </Card>
 
       {/* 2. Absensi Bulanan */}
+      {canAttendance && (
       <Card padding={false}>
         <div className="px-5 py-4 border-b border-gray-50">
           <div className="flex items-center gap-2 mb-0.5">
@@ -299,6 +291,7 @@ function DownloadTab() {
           </Button>
         </div>
       </Card>
+      )}
 
       {/* 3. Rekap Payroll */}
       {canPayroll && (
@@ -413,16 +406,25 @@ function DownloadTab() {
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("Overview");
   const [excelLoading, setExcelLoading] = useState<boolean>(false);
+  const reportingCurrency = getStoredCurrency();
+  const reportingSymbol = getCurrencySymbol(reportingCurrency);
 
-  const { data: expenses = [], isLoading: expLoad } = useQuery({
+  const { data: allExpenses = [], isLoading: expLoad } = useQuery({
     queryKey: ["expenses", "all"],
     queryFn: loadAllExpenses,
   });
 
-  const { data: projects = [], isLoading: projLoad } = useQuery({
+  const { data: allProjects = [], isLoading: projLoad } = useQuery({
     queryKey: ["projects", "reports-all"],
     queryFn: loadAllProjects,
   });
+  const projects = allProjects.filter(
+    (project) => (project.currency || "IDR") === reportingCurrency
+  );
+  const reportingProjectIds = new Set(projects.map((project) => project.id));
+  const expenses = allExpenses.filter(
+    (expense) => expense.project_id != null && reportingProjectIds.has(expense.project_id)
+  );
 
   // Aggregate: spending by cost code category
   const categoryMap: Record<string, number> = {};
@@ -451,16 +453,10 @@ export default function ReportsPage() {
   async function exportExcel() {
     setExcelLoading(true);
     try {
-      const token = localStorage.getItem("gpa_access_token");
-      const res = await fetch(`${BASE_URL}/expenses/export`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gpa-expenses-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadBlob(
+        expensesApi.export({ currency: reportingCurrency }),
+        `gpa-expenses-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -474,8 +470,9 @@ export default function ReportsPage() {
       e.id, e.project_id, e.cost_code?.code ?? "", e.cost_code?.category ?? "",
       e.amount, e.status, e.created_at,
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const csvCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
     const a   = document.createElement("a");
     a.href = url; a.download = "gpa-expenses.csv"; a.click();
     URL.revokeObjectURL(url);
@@ -487,7 +484,7 @@ export default function ReportsPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Reports</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Analytics & exports · All projects</p>
+          <p className="text-sm text-gray-400 mt-0.5">Analytics & exports · {reportingCurrency} projects</p>
         </div>
         {tab === "Spending" && (
           <div className="flex gap-2">
@@ -532,9 +529,9 @@ export default function ReportsPage() {
           {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: "Total Contract",  value: formatCurrency(totalContract),  color: "text-gray-900" },
-              { label: "Total Revenue",   value: formatCurrency(totalRevenue),   color: "text-green-600" },
-              { label: "Total Committed", value: formatCurrency(totalCommitted), color: "text-amber-600" },
+              { label: "Total Contract",  value: formatCurrency(totalContract, reportingSymbol),  color: "text-gray-900" },
+              { label: "Total Revenue",   value: formatCurrency(totalRevenue, reportingSymbol),   color: "text-green-600" },
+              { label: "Total Committed", value: formatCurrency(totalCommitted, reportingSymbol), color: "text-amber-600" },
               { label: "Gross Margin",    value: `${margin.toFixed(1)}%`,             color: margin < 20 ? "text-red-500" : "text-green-600" },
             ].map((s) => (
               <Card key={s.label} className="text-center">
@@ -556,8 +553,8 @@ export default function ReportsPage() {
                   <BarChart data={projectData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${getCurrencySymbol()}${formatCompact(v)}`} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${reportingSymbol}${formatCompact(v)}`} />
+                    <Tooltip content={<CustomTooltip currencySymbol={reportingSymbol} />} />
                     <Bar dataKey="revenue"   name="Revenue"   fill="#1E40AF" radius={[3,3,0,0]} />
                     <Bar dataKey="committed" name="Committed" fill="#F59E0B" radius={[3,3,0,0]} />
                     <Bar dataKey="remaining" name="Remaining" fill="#E5E7EB" radius={[3,3,0,0]} />
@@ -586,10 +583,10 @@ export default function ReportsPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: "#9CA3AF" }}
                       axisLine={false} tickLine={false}
-                      tickFormatter={(v) => `${getCurrencySymbol()}${formatCompact(v)}`} />
+                      tickFormatter={(v) => `${reportingSymbol}${formatCompact(v)}`} />
                     <YAxis type="category" dataKey="name"
                       tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <Tooltip content={<CustomTooltip currencySymbol={reportingSymbol} />} />
                     <Bar dataKey="value" name="Spent" radius={[0,3,3,0]}>
                       {categoryData.map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -621,7 +618,7 @@ export default function ReportsPage() {
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v, reportingSymbol)} />
                     <Legend wrapperStyle={{ fontSize: 11, color: "#6B7280" }} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -661,9 +658,9 @@ export default function ReportsPage() {
                         <p className="text-sm font-medium text-gray-900 truncate max-w-[360px]">{p.name}</p>
                       </div>
                     </td>
-                    <td className="td text-right num font-semibold text-gray-900">{formatCurrency(p.contract_value)}</td>
-                    <td className="td text-right num text-green-600 font-semibold hidden md:table-cell">{formatCurrency(p.total_revenue)}</td>
-                    <td className="td text-right num text-amber-600 font-semibold hidden md:table-cell">{formatCurrency(p.total_committed)}</td>
+                    <td className="td text-right num font-semibold text-gray-900">{formatCurrency(p.contract_value, getCurrencySymbol(p.currency))}</td>
+                    <td className="td text-right num text-green-600 font-semibold hidden md:table-cell">{formatCurrency(p.total_revenue, getCurrencySymbol(p.currency))}</td>
+                    <td className="td text-right num text-amber-600 font-semibold hidden md:table-cell">{formatCurrency(p.total_committed, getCurrencySymbol(p.currency))}</td>
                     <td className="td text-right">
                       <span className={`num text-base font-bold ${m < 10 ? "text-red-500" : m < 20 ? "text-amber-600" : "text-green-600"}`}>
                         {m.toFixed(1)}%

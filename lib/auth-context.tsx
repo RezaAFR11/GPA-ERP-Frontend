@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // On mount, restore session from localStorage token
+  // On mount, restore the server-managed httpOnly cookie session.
   useEffect(() => {
     loadUser();
   }, [loadUser]);
@@ -92,11 +92,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.allowedMenuKeys, state.user]);
 
   const firstAllowedPath = useCallback(() => {
-    // WORKER and STAFF: always land on self-service home (/hris/me)
-    if (state.user?.role.name === "WORKER" || state.user?.role.name === "STAFF") return "/hris/me";
+    const isSelfServiceRole = state.user?.role.name === "WORKER" || state.user?.role.name === "STAFF";
+    const hasSelfServiceMenu = ["hris_attendance", "hris_leave", "hris_my_payslip"]
+      .some(key => state.allowedMenuKeys.includes(key));
+    if (isSelfServiceRole && hasSelfServiceMenu) return "/hris/me";
     // Everyone else: land on the launchpad
     return "/home";
-  }, [state.menus, state.user]);
+  }, [state.allowedMenuKeys, state.user]);
 
   return (
     <AuthContext.Provider value={{ ...state, login, logout, refreshUser, canAccessMenu, firstAllowedPath }}>

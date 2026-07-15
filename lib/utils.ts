@@ -28,7 +28,7 @@ export function setStoredCurrency(code: CurrencyCode) {
 }
 
 export function getCurrencySymbol(code?: string | null): string {
-  const selected = CURRENCIES.find((c) => c.code === (code ?? getStoredCurrency()));
+  const selected = CURRENCIES.find((c) => c.code === (code ?? "IDR"));
   return selected?.symbol ?? "Rp ";
 }
 
@@ -70,6 +70,13 @@ export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   try { return format(parseISO(iso), "dd MMM yyyy · HH:mm"); }
   catch { return iso; }
+}
+
+export function toLocalDateInputValue(value = new Date()): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 // ─── Percent ──────────────────────────────────────────────────────────────────

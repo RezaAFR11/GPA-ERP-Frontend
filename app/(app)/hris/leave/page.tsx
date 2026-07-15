@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CalendarDays, PlusCircle, CheckCircle2, XCircle, Clock3, ChevronDown,
+  CalendarDays, PlusCircle, CheckCircle2, XCircle, Clock3, ChevronDown, FileText,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
 import { LeaveRequestModal } from "./components/leave-request-modal";
 import { hrisLeaveApi, hrisEmployeesApi } from "@/lib/api";
-import type { LeaveRequest, Employee } from "@/lib/types";
+import type { LeaveRequest, Employee, RoleName } from "@/lib/types";
 import { cn, fmtDate } from "@/lib/utils";
+import { useRole } from "@/lib/auth-context";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { toastError } from "@/lib/hooks/use-toast";
 
 /* ─── Status config ──────────────────────────────────────────────────────── */
 const STATUS_CFG: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
@@ -21,6 +24,14 @@ const STATUS_CFG: Record<string, { label: string; cls: string; icon: React.React
   approved:  { label: "Disetujui", cls: "bg-teal-50 text-teal-700 border-teal-200",    icon: <CheckCircle2 size={12} /> },
   rejected:  { label: "Ditolak",  cls: "bg-red-50 text-red-600 border-red-200",       icon: <XCircle size={12} /> },
 };
+
+function canHandleApproval(role: RoleName | null, expectedRole: string | null): boolean {
+  if (!role || !expectedRole) return false;
+  if (role === "SUPER_ADMIN") return true;
+  if (expectedRole === "GA") return role === "GA" || role === "HR";
+  if (expectedRole === "PM") return role === "PM" || role === "PROJECT_CONTROL";
+  return role === expectedRole;
+}
 
 /* ─── Balance cards ──────────────────────────────────────────────────────── */
 function BalanceCard({ label, accrued, used, remaining, isPaid }: {
@@ -100,6 +111,15 @@ function ActionModal({
             <p className="font-semibold text-gray-800">{request.leave_type?.name}</p>
             <p className="text-gray-500">{fmtDate(request.start_date)} → {fmtDate(request.end_date)} · {request.days} hari</p>
             {request.reason && <p className="text-gray-600 italic">"{request.reason}"</p>}
+            {request.doctor_cert_url && (
+              <button
+                type="button"
+                onClick={() => openAuthenticatedFile(request.doctor_cert_url!).catch(() => toastError("Gagal membuka surat dokter"))}
+                className="mt-2 flex items-center gap-1.5 text-blue-600 hover:text-blue-800 font-medium"
+              >
+                <FileText size={13} /> Lihat Surat Dokter
+              </button>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -120,6 +140,8 @@ function ActionModal({
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 export default function LeavePage() {
   const qc = useQueryClient();
+  const { role, hasRole } = useRole();
+  const canManageLeave = hasRole("SUPER_ADMIN", "MD", "GA", "HR");
   const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
   const [filterStatus,  setFilterStatus]  = useState("all");
   const [showNew,       setShowNew]       = useState(false);
@@ -180,6 +202,8 @@ export default function LeavePage() {
           <p className="text-sm text-gray-400 mt-0.5">Manajemen cuti, izin, dan persetujuan</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {canManageLeave && (
+            <>
           <Button variant="ghost" size="sm"
             onClick={() => seedMut.mutate()}
             disabled={seedMut.isPending}
@@ -190,6 +214,8 @@ export default function LeavePage() {
             className="bg-blue-600 hover:bg-blue-700 text-white">
             <PlusCircle size={14} className="mr-1.5" /> Ajukan Cuti
           </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -313,7 +339,7 @@ export default function LeavePage() {
                             {req.current_approver_role ?? "—"}
                           </td>
                           <td className="px-4 py-3">
-                            {req.status === "submitted" && (
+                            {req.status === "submitted" && canHandleApproval(role, req.current_approver_role) && (
                               <div className="flex gap-1.5">
                                 <button
                                   onClick={() => { setActionReq(req); setActionType("approve"); }}

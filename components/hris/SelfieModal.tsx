@@ -1,5 +1,6 @@
 "use client";
 import { X, CheckCircle2, AlertTriangle } from "lucide-react";
+import { AuthenticatedImage } from "@/components/ui/authenticated-image";
 
 interface SelfieModalProps {
   open:            boolean;
@@ -18,8 +19,6 @@ export function SelfieModal({
 }: SelfieModalProps) {
   if (!open) return null;
 
-  const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace("/api", "") ?? "http://localhost:8000";
-  const src = selfie_url.startsWith("http") ? selfie_url : `${BASE_URL}/${selfie_url}`;
   const pct = face_confidence != null ? `${(face_confidence * 100).toFixed(0)}%` : null;
 
   return (
@@ -46,9 +45,8 @@ export function SelfieModal({
         </div>
 
         {/* Selfie image */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
+        <AuthenticatedImage
+          src={selfie_url}
           alt={`Selfie ${employee_name}`}
           className="w-full object-cover"
           style={{ maxHeight: 400 }}
@@ -60,7 +58,7 @@ export function SelfieModal({
             <>
               <CheckCircle2 size={16} className="text-teal-600 shrink-0" />
               <span className="text-sm text-teal-700 font-medium">
-                Terverifikasi {pct && `· ${pct}`}
+                Wajah terdeteksi {pct && `· ${pct}`}
               </span>
             </>
           ) : (

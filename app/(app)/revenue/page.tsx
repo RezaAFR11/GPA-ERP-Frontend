@@ -66,6 +66,7 @@ function descriptionSummary(ar: AccountReceivable) {
 function RevenueActionMenu({
   ar,
   canConfirm,
+  canDelete,
   isConfirming,
   isDeleting,
   onEdit,
@@ -74,6 +75,7 @@ function RevenueActionMenu({
 }: {
   ar: AccountReceivable;
   canConfirm: boolean;
+  canDelete: boolean;
   isConfirming: boolean;
   isDeleting: boolean;
   onEdit: (ar: AccountReceivable) => void;
@@ -111,7 +113,7 @@ function RevenueActionMenu({
             >
               <Pencil size={12} className="text-primary" /> Edit
             </button>
-            {!isConfirmed && (
+            {canConfirm && !isConfirmed && (
               <button
                 type="button"
                 disabled={confirmDisabled}
@@ -126,7 +128,7 @@ function RevenueActionMenu({
                 <CheckCircle size={12} className="text-green-600" /> Confirm
               </button>
             )}
-            <div className="my-1 border-t border-gray-100" />
+            {canDelete && <><div className="my-1 border-t border-gray-100" />
             <button
               type="button"
               disabled={deleteDisabled}
@@ -138,7 +140,7 @@ function RevenueActionMenu({
               className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 size={12} className="text-red-500" /> Delete
-            </button>
+            </button></>}
       </FloatingActionMenu>
     </div>
   );
@@ -452,6 +454,7 @@ export default function RevenuePage() {
                         <RevenueActionMenu
                           ar={ar}
                           canConfirm={isMD}
+                          canDelete={isMD}
                           isConfirming={confirmMut.isPending}
                           isDeleting={deleteMut.isPending}
                           onEdit={openEdit}
