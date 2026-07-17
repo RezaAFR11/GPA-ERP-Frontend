@@ -1185,3 +1185,81 @@ export interface MyDocumentItem {
   file_url: string;
   period_label: string | null;
 }
+
+// --- EPC operational workspaces --------------------------------------------
+
+export type OperationalStatus =
+  | "draft" | "submitted" | "in_review" | "approved" | "active"
+  | "rejected" | "completed" | "cancelled" | "closed";
+
+export type OperationalPriority = "low" | "normal" | "high" | "critical";
+
+export interface OperationalModule {
+  key: string;
+  label: string;
+  description: string;
+  path: string;
+  record_types: Record<string, string>;
+  statuses: OperationalStatus[];
+  can_approve: boolean;
+}
+
+export interface OperationalWorkflowEvent {
+  action: string;
+  from_status: string | null;
+  to_status: string;
+  user_id: number;
+  timestamp: string;
+  note: string | null;
+}
+
+export interface OperationalRecord {
+  id: number;
+  module: string;
+  record_type: string;
+  reference_no: string;
+  title: string;
+  description: string | null;
+  status: OperationalStatus;
+  priority: OperationalPriority;
+  project_id: number | null;
+  partner_name: string | null;
+  amount: number;
+  currency: string;
+  progress: number;
+  due_date: string | null;
+  owner_id: number | null;
+  created_by: number;
+  approved_by: number | null;
+  approved_at: string | null;
+  closed_at: string | null;
+  details: Record<string, unknown>;
+  workflow_history: OperationalWorkflowEvent[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationalRecordInput {
+  record_type: string;
+  reference_no?: string;
+  title: string;
+  description?: string;
+  priority: OperationalPriority;
+  project_id?: number | null;
+  partner_name?: string;
+  amount: number;
+  currency: string;
+  progress: number;
+  due_date?: string | null;
+  owner_id?: number | null;
+  details?: Record<string, unknown>;
+}
+
+export interface OperationalSummary {
+  total: number;
+  total_amount: number;
+  overdue: number;
+  due_soon: number;
+  average_progress: number;
+  by_status: Record<string, number>;
+}

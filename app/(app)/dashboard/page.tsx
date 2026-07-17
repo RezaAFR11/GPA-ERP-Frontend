@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -9,12 +10,14 @@ import {
   ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import Link from "next/link";
-import { projectsApi, expensesApi, reportsApi } from "@/lib/api";
-import { formatCurrency, formatCompact, pct, fmtDate, burnTailwind, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
+import { projectsApi, expensesApi, reportsApi, operationsApi } from "@/lib/api";
+import { formatCurrency, formatCompact, pct, fmtDate, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardHeader } from "@/components/ui/card";
 import { KPISkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { ExpenseStatusBadge } from "@/components/ui/badge";
-import type { Project } from "@/lib/types";
+import { Pagination } from "@/components/ui/pagination";
+import type { OperationalRecord, Project } from "@/lib/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +40,24 @@ async function loadAllActiveProjects(): Promise<Project[]> {
   while (true) {
     const response = await projectsApi.list({
       status: "active", archived: false, skip, limit: 500,
+    });
+    items.push(...response.data.items);
+    if (items.length >= response.data.total || response.data.items.length === 0) return items;
+    skip += response.data.items.length;
+  }
+}
+
+async function loadAllOperationalRecords(
+  module: string,
+  recordType?: string,
+): Promise<OperationalRecord[]> {
+  const items: OperationalRecord[] = [];
+  let skip = 0;
+  while (true) {
+    const response = await operationsApi.list(module, {
+      record_type: recordType,
+      skip,
+      limit: 500,
     });
     items.push(...response.data.items);
     if (items.length >= response.data.total || response.data.items.length === 0) return items;
@@ -93,34 +114,165 @@ function KPICard({
   );
 }
 
-// ── Burn Rate Bar ─────────────────────────────────────────────────────────────
-function BurnBar({ project }: { project: Project }) {
-  const used    = pct(project.total_committed, project.contract_value);
-  const revenue = pct(project.total_revenue,   project.contract_value);
-  const color   = burnTailwind(used);
+// ── Project health ────────────────────────────────────────────────────────────
+type ProjectHealthStatus = "on_track" | "at_risk" | "behind" | "needs_data";
 
+interface ProjectHealthMetric {
+  project: Project;
+  progress: number | null;
+  budgetUsed: number;
+  safeDays: number | null;
+  status: ProjectHealthStatus;
+  reason: string;
+}
+
+const HEALTH_STATUS: Record<ProjectHealthStatus, { label: string; className: string; dot: string }> = {
+  on_track: {
+    label: "On Track",
+    className: "bg-green-50 text-green-700 border-green-200",
+    dot: "bg-green-500",
+  },
+  at_risk: {
+    label: "At Risk",
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+    dot: "bg-amber-500",
+  },
+  behind: {
+    label: "Behind",
+    className: "bg-red-50 text-red-700 border-red-200",
+    dot: "bg-red-500",
+  },
+  needs_data: {
+    label: "Needs Data",
+    className: "bg-gray-50 text-gray-600 border-gray-200",
+    dot: "bg-gray-400",
+  },
+};
+
+const TRUSTED_PROGRESS_STATUSES = new Set(["approved", "active", "completed", "closed"]);
+const IGNORED_HSE_STATUSES = new Set(["rejected", "cancelled"]);
+
+function asDate(value: unknown): Date | null {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysSince(value: Date, now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - value.getTime()) / 86_400_000));
+}
+
+function expectedScheduleProgress(project: Project, now: Date): number | null {
+  const start = asDate(project.start_date);
+  const end = asDate(project.end_date);
+  if (!start || !end || end <= start) return null;
+  const elapsed = now.getTime() - start.getTime();
+  const duration = end.getTime() - start.getTime();
+  return Math.max(0, Math.min(100, (elapsed / duration) * 100));
+}
+
+function latestRecord(records: OperationalRecord[]): OperationalRecord | undefined {
+  return [...records].sort((a, b) => {
+    const byUpdated = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+    return byUpdated || b.id - a.id;
+  })[0];
+}
+
+function buildProjectHealth(
+  project: Project,
+  progressRecords: OperationalRecord[],
+  hseRecords: OperationalRecord[],
+  now: Date,
+  canReadProgress: boolean,
+  canReadHse: boolean,
+): ProjectHealthMetric {
+  const progressRecord = latestRecord(progressRecords.filter((record) =>
+    record.project_id === project.id && TRUSTED_PROGRESS_STATUSES.has(record.status),
+  ));
+  const progress = progressRecord ? Math.max(0, Math.min(100, Number(progressRecord.progress))) : null;
+  const budgetUsed = Math.max(0, pct(project.total_committed, project.contract_value));
+  const projectHseRecords = hseRecords.filter((record) =>
+    record.project_id === project.id && !IGNORED_HSE_STATUSES.has(record.status),
+  );
+  const lostTimeIncidents = projectHseRecords.filter((record) =>
+    record.record_type === "incident" && Number(record.details?.lost_time_days ?? 0) > 0,
+  );
+  const latestLostTimeIncident = latestRecord(lostTimeIncidents);
+  const latestLostTimeDate = latestLostTimeIncident
+    ? asDate(latestLostTimeIncident.details?.event_date) ?? asDate(latestLostTimeIncident.created_at)
+    : null;
+  const hseBaseline = latestLostTimeDate ?? asDate(project.start_date);
+  const safeDays = projectHseRecords.length > 0 && hseBaseline ? daysSince(hseBaseline, now) : null;
+  const expectedProgress = expectedScheduleProgress(project, now);
+  const scheduleGap = progress != null && expectedProgress != null ? expectedProgress - progress : 0;
+  const projectEnd = asDate(project.end_date);
+  const isOverdue = !!projectEnd && projectEnd < now && (progress ?? 0) < 100;
+  const recentLostTimeIncident = latestLostTimeDate ? daysSince(latestLostTimeDate, now) <= 30 : false;
+
+  // Health combines approved progress, schedule, committed spend, and recorded HSE evidence.
+  if (budgetUsed > 100 || isOverdue || scheduleGap >= 30) {
+    return {
+      project, progress, budgetUsed, safeDays, status: "behind",
+      reason: budgetUsed > 100
+        ? "Committed spend exceeds contract value"
+        : isOverdue
+          ? "Project end date has passed"
+          : "Progress is materially behind schedule",
+    };
+  }
+  if (budgetUsed >= 90 || scheduleGap >= 15 || recentLostTimeIncident) {
+    return {
+      project, progress, budgetUsed, safeDays, status: "at_risk",
+      reason: recentLostTimeIncident
+        ? "Lost-time incident recorded in the last 30 days"
+        : budgetUsed >= 90
+          ? "Committed spend is nearing contract value"
+          : "Progress is behind the planned schedule",
+    };
+  }
+  if (progress == null || (canReadHse && projectHseRecords.length === 0)) {
+    return {
+      project, progress, budgetUsed, safeDays, status: "needs_data",
+      reason: progress == null
+        ? canReadProgress
+          ? "No approved progress update has been recorded"
+          : "Project Execution access is required to assess progress"
+        : "No HSE activity has been recorded for this project",
+    };
+  }
+  return {
+    project, progress, budgetUsed, safeDays, status: "on_track",
+    reason: "Progress, budget, schedule, and HSE indicators are within limits",
+  };
+}
+
+function HealthBadge({ metric }: { metric: ProjectHealthMetric }) {
+  const style = HEALTH_STATUS[metric.status];
   return (
-    <div className="flex items-center gap-3 py-2.5">
-      <div className="w-16 shrink-0">
-        <p className="text-[11px] font-mono font-semibold text-gray-500 truncate">{project.code}</p>
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-semibold whitespace-nowrap ${style.className}`}
+      title={metric.reason}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  );
+}
+
+function ProjectHealthRow({ metric }: { metric: ProjectHealthMetric }) {
+  return (
+    <div className="py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-mono font-semibold text-gray-500">{metric.project.code}</p>
+          <p className="text-xs text-gray-800 truncate font-medium mt-0.5">{metric.project.name}</p>
+        </div>
+        <HealthBadge metric={metric} />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-gray-700 truncate font-medium">{project.name}</p>
-          <p className={`text-[10px] num font-semibold ml-2 shrink-0 ${used >= 90 ? "text-red-500" : used >= 70 ? "text-amber-600" : "text-gray-500"}`}>
-            {used.toFixed(0)}%
-          </p>
-        </div>
-        <div className="relative h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 bg-gray-200 rounded-full"
-            style={{ width: `${Math.min(revenue, 100)}%` }}
-          />
-          <div
-            className={`absolute inset-y-0 left-0 rounded-full transition-all ${color}`}
-            style={{ width: `${Math.min(used, 100)}%` }}
-          />
-        </div>
+      <div className="grid grid-cols-3 gap-2 mt-2 text-[10px] text-gray-400">
+        <span>Progress <strong className="text-gray-600">{metric.progress == null ? "--" : `${metric.progress.toFixed(0)}%`}</strong></span>
+        <span>Budget <strong className="text-gray-600">{metric.budgetUsed.toFixed(0)}%</strong></span>
+        <span>HSE <strong className="text-gray-600">{metric.safeDays == null ? "--" : `${metric.safeDays}d`}</strong></span>
       </div>
     </div>
   );
@@ -128,13 +280,31 @@ function BurnBar({ project }: { project: Project }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const { canAccessMenu } = useAuth();
+  const [projectStatusPage, setProjectStatusPage] = useState(1);
+  const [projectStatusPageSize, setProjectStatusPageSize] = useState(5);
   const reportingCurrency = getStoredCurrency();
   const reportingSymbol = getCurrencySymbol(reportingCurrency);
+  const canReadProjectExecution = canAccessMenu("project_execution");
+  const canReadHse = canAccessMenu("hse");
   const { data: allProjects = [], isLoading: projLoad } = useQuery({
     queryKey: ["projects", "dashboard", "active"],
     queryFn: loadAllActiveProjects,
   });
   const projects = allProjects.filter((project) => (project.currency || "IDR") === reportingCurrency);
+
+  const { data: progressRecords = [], isLoading: progressLoad } = useQuery({
+    queryKey: ["operational-records", "dashboard", "project_execution", "progress_update"],
+    queryFn: () => loadAllOperationalRecords("project_execution", "progress_update"),
+    enabled: canReadProjectExecution,
+    retry: false,
+  });
+  const { data: hseRecords = [], isLoading: hseLoad } = useQuery({
+    queryKey: ["operational-records", "dashboard", "hse"],
+    queryFn: () => loadAllOperationalRecords("hse"),
+    enabled: canReadHse,
+    retry: false,
+  });
 
   const { data: recentExpenseData, isLoading: expLoad } = useQuery({
     queryKey: ["expenses", "recent", reportingCurrency],
@@ -145,6 +315,24 @@ export default function DashboardPage() {
     queryFn: () => reportsApi.dashboardTrend(reportingCurrency).then((r) => r.data),
   });
   const recentExpenses = (recentExpenseData?.items ?? []).slice(0, 8);
+  const now = new Date();
+  const projectHealth = projects.map((project) =>
+    buildProjectHealth(
+      project,
+      progressRecords,
+      hseRecords,
+      now,
+      canReadProjectExecution,
+      canReadHse,
+    ),
+  );
+  const projectStatusTotalPages = Math.max(1, Math.ceil(projectHealth.length / projectStatusPageSize));
+  const currentProjectStatusPage = Math.min(projectStatusPage, projectStatusTotalPages);
+  const visibleProjectHealth = projectHealth.slice(
+    (currentProjectStatusPage - 1) * projectStatusPageSize,
+    currentProjectStatusPage * projectStatusPageSize,
+  );
+  const projectHealthLoading = projLoad || progressLoad || hseLoad;
 
   // ── Aggregate KPIs ──────────────────────────────────────────────────────────
   const totalBudget    = projects.reduce((s, p) => s + (Number(p.contract_value) || 0), 0);
@@ -308,28 +496,37 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Project burn rates */}
+        {/* Project health summary */}
         <Card padding={false}>
           <div className="px-5 py-4 border-b border-gray-50">
             <CardHeader
-              title="Project Burn Rate"
-              subtitle="Committed vs. contract value"
+              title="Project Health"
+              subtitle="Progress, budget, HSE & risk status"
               className="mb-0"
             />
           </div>
           <div className="px-4 py-2 divide-y divide-gray-50">
-            {projLoad
+            {projectHealthLoading
               ? Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="py-2.5 space-y-1.5">
                     <Skeleton className="h-3 w-40" />
-                    <Skeleton className="h-1.5 w-full rounded-full" />
+                    <Skeleton className="h-5 w-full rounded-md" />
                   </div>
                 ))
-              : projects.length === 0
+              : projectHealth.length === 0
                 ? <p className="py-6 text-center text-sm text-gray-400">No active projects</p>
-                : projects.map((p) => <BurnBar key={p.id} project={p} />)
+                : projectHealth.slice(0, 5).map((metric) => (
+                    <ProjectHealthRow key={metric.project.id} metric={metric} />
+                  ))
             }
           </div>
+          {projectHealth.length > 5 && (
+            <div className="px-5 py-3 border-t border-gray-50 text-right">
+              <a href="#active-project-status" className="text-xs text-primary hover:underline font-medium">
+                View {projectHealth.length - 5} more
+              </a>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -401,6 +598,178 @@ export default function DashboardPage() {
           </table></div>
         )}
       </Card>
+
+      <div id="active-project-status">
+        <Card padding={false}>
+        <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Active Project Status</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Progress, committed budget, HSE, and overall project health
+            </p>
+          </div>
+          <Link
+            href="/projects"
+            className="text-xs text-primary hover:underline font-medium whitespace-nowrap"
+          >
+            View projects
+          </Link>
+        </div>
+
+        {projectHealthLoading ? (
+          <TableSkeleton rows={5} cols={5} />
+        ) : projectHealth.length === 0 ? (
+          <div className="py-10 text-center text-sm text-gray-400">No active projects</div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] table-fixed">
+                <thead>
+                  <tr className="border-b border-gray-50">
+                    <th className="th w-[29%]">Project</th>
+                    <th className="th w-[19%]">Progress</th>
+                    <th className="th w-[24%]">Committed / Contract</th>
+                    <th className="th w-[12%] text-center">HSE</th>
+                    <th className="th w-[16%]">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {visibleProjectHealth.map((metric) => {
+                    const progressBar = metric.status === "behind"
+                      ? "bg-red-500"
+                      : metric.status === "at_risk"
+                        ? "bg-amber-500"
+                        : metric.status === "needs_data"
+                          ? "bg-gray-300"
+                          : "bg-green-600";
+                    return (
+                      <tr key={metric.project.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="td">
+                          <Link
+                            href={`/projects/${metric.project.id}`}
+                            className="font-mono text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            {metric.project.code}
+                          </Link>
+                          <p className="text-sm font-medium text-gray-900 truncate mt-0.5">
+                            {metric.project.name}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {metric.project.start_date || metric.project.end_date
+                              ? `${fmtDate(metric.project.start_date)} - ${fmtDate(metric.project.end_date)}`
+                              : "Schedule not set"}
+                          </p>
+                        </td>
+                        <td className="td">
+                          <div className="flex items-center gap-3">
+                            <span className="num w-10 text-right text-xs font-semibold text-gray-700">
+                              {metric.progress == null
+                                ? "--"
+                                : `${metric.progress.toFixed(1)}%`}
+                            </span>
+                            <div className="h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${progressBar}`}
+                                style={{ width: `${metric.progress == null ? 0 : metric.progress}%` }}
+                              />
+                            </div>
+                          </div>
+                          {metric.progress == null && (
+                            <p className="text-[10px] text-gray-400 mt-1 ml-[52px]">
+                              {canReadProjectExecution ? "Not reported" : "No access"}
+                            </p>
+                          )}
+                        </td>
+                        <td className="td">
+                          <p className="num text-xs font-semibold text-gray-900">
+                            {formatCurrency(metric.project.total_committed, reportingSymbol)}
+                            <span className="font-normal text-gray-400"> / </span>
+                            {formatCurrency(metric.project.contract_value, reportingSymbol)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <div className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  metric.budgetUsed > 100
+                                    ? "bg-red-500"
+                                    : metric.budgetUsed >= 90
+                                      ? "bg-amber-500"
+                                      : "bg-primary"
+                                }`}
+                                style={{ width: `${Math.min(metric.budgetUsed, 100)}%` }}
+                              />
+                            </div>
+                            <span className="num text-[10px] text-gray-500 w-11 text-right">
+                              {metric.budgetUsed.toFixed(1)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="td text-center">
+                          {!canReadHse ? (
+                            <>
+                              <p className="text-xs font-semibold text-gray-400">--</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">No access</p>
+                            </>
+                          ) : metric.safeDays == null ? (
+                            <>
+                              <p className="text-xs font-semibold text-gray-400">--</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">Not reported</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="num text-sm font-bold text-green-600">{metric.safeDays}</p>
+                              <p className="text-[10px] text-green-600 mt-0.5">days safe</p>
+                            </>
+                          )}
+                        </td>
+                        <td className="td">
+                          <HealthBadge metric={metric} />
+                          <p className="text-[10px] text-gray-400 mt-1.5 truncate" title={metric.reason}>
+                            {metric.reason}
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-xs text-gray-400">
+                Showing{" "}
+                <span className="font-medium text-gray-600">
+                  {(currentProjectStatusPage - 1) * projectStatusPageSize + 1}-
+                  {Math.min(currentProjectStatusPage * projectStatusPageSize, projectHealth.length)}
+                </span>
+                {" "}of{" "}
+                <span className="font-medium text-gray-600">{projectHealth.length}</span>
+                {" "}active projects
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <select
+                  value={projectStatusPageSize}
+                  onChange={(event) => {
+                    setProjectStatusPageSize(Number(event.target.value));
+                    setProjectStatusPage(1);
+                  }}
+                  aria-label="Projects per page"
+                  className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value={5}>5 per page</option>
+                  <option value={10}>10 per page</option>
+                </select>
+                <Pagination
+                  page={currentProjectStatusPage}
+                  totalPages={projectStatusTotalPages}
+                  onPageChange={setProjectStatusPage}
+                  className="pt-0"
+                />
+              </div>
+            </div>
+          </>
+        )}
+        </Card>
+      </div>
     </div>
   );
 }

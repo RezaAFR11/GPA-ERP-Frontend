@@ -6,7 +6,7 @@ import type {
   LegalDocument, LegalDocCreate, MessageResponse,
   MenuPermissionsResponse, Notification, PaginatedResponse, PasswordChangeResponse, PettyCashReport, Project,
   ProjectDocument, ProjectImportResult, TokenResponse, User, UserCreate, UserListSummary, UserSummary,
-  WorkspaceBranding,
+  WorkspaceBranding, OperationalModule, OperationalRecord, OperationalRecordInput, OperationalSummary,
   ReceivablesSummary,
   // HRIS H1
   BulkAccountResponse,
@@ -264,6 +264,38 @@ export const inventoryApi = {
   txns:   (id: number) => api.get<InventoryTxn[]>(`/inventory/${id}/txns`),
 };
 
+// --- EPC operational workspaces --------------------------------------------
+
+export const operationsApi = {
+  modules: () => api.get<OperationalModule[]>("/operations/modules"),
+  actionQueue: () => api.get<OperationalRecord[]>("/operations/action-queue"),
+  list: (
+    module: string,
+    params?: {
+      project_id?: number;
+      record_type?: string;
+      status?: string;
+      search?: string;
+      skip?: number;
+      limit?: number;
+    },
+  ) => api.get<PaginatedResponse<OperationalRecord>>(`/operations/${module}`, { params }),
+  summary: (module: string) =>
+    api.get<OperationalSummary>(`/operations/${module}/summary`),
+  get: (module: string, id: number) =>
+    api.get<OperationalRecord>(`/operations/${module}/${id}`),
+  create: (module: string, data: OperationalRecordInput) =>
+    api.post<OperationalRecord>(`/operations/${module}`, data),
+  update: (module: string, id: number, data: Partial<OperationalRecordInput>) =>
+    api.patch<OperationalRecord>(`/operations/${module}/${id}`, data),
+  transition: (module: string, id: number, action: string, note?: string) =>
+    api.post<OperationalRecord>(`/operations/${module}/${id}/transition`, { action, note }),
+  delete: (module: string, id: number) =>
+    api.delete<MessageResponse>(`/operations/${module}/${id}`),
+  audit: (module: string, id: number) =>
+    api.get<AuditLog[]>(`/operations/${module}/${id}/audit`),
+};
+
 // ─── Global Search ────────────────────────────────────────────────────────────
 
 export interface SearchResults {
@@ -272,6 +304,7 @@ export interface SearchResults {
   receivables: { id: number; invoice_no: string | null; customer_name: string | null; amount: number; status: string }[];
   legal_docs:  { id: number; doc_number: string | null; title: string; doc_type: string; status: string }[];
   inventory:   { id: number; code: string; name: string; category: string; qty_on_hand: number; unit: string }[];
+  operational_records: { id: number; module: string; reference_no: string; title: string; status: string; path: string }[];
 }
 
 export const searchApi = {

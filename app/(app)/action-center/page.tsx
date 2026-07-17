@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Eye, ShieldCheck, Banknote, Send, AlertCircle, X, Receipt } from "lucide-react";
-import { expensesApi } from "@/lib/api";
+import { CheckCircle2, Eye, ShieldCheck, Banknote, Send, AlertCircle, X, Receipt, BriefcaseBusiness } from "lucide-react";
+import { expensesApi, operationsApi } from "@/lib/api";
 import { formatCurrency, fmtDateTime, getErrorMessage } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { getActionCenterQueues, loadActionCenterExpenses } from "@/lib/action-center";
-import type { Expense } from "@/lib/types";
+import type { Expense, OperationalRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
 
@@ -112,15 +112,77 @@ function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onVie
   );
 }
 
+function OperationalActionGroup({
+  records,
+  onApprove,
+  onOpen,
+  pendingId,
+}: {
+  records: OperationalRecord[];
+  onApprove: (record: OperationalRecord) => void;
+  onOpen: (record: OperationalRecord) => void;
+  pendingId: number | null;
+}) {
+  if (records.length === 0) return null;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 px-1">
+        <div className="w-6 h-6 rounded-md flex items-center justify-center bg-[#0A3A63]">
+          <BriefcaseBusiness size={13} className="text-white" />
+        </div>
+        <h3 className="text-sm font-semibold text-gray-800">Operational Approvals</h3>
+        <span className="ml-1 text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 num font-semibold">{records.length}</span>
+      </div>
+      <Card padding={false}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px]">
+            <thead>
+              <tr>
+                <th className="th">Module</th><th className="th">Reference</th>
+                <th className="th">Title</th><th className="th text-right">Value</th>
+                <th className="th">Status</th><th className="th">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map(record => (
+                <tr key={`${record.module}-${record.id}`}>
+                  <td className="td text-[11px] font-semibold capitalize">{record.module.replaceAll("_", " ")}</td>
+                  <td className="td text-[11px] font-mono">{record.reference_no}</td>
+                  <td className="td text-[12px] font-medium max-w-[260px] truncate">{record.title}</td>
+                  <td className="td text-right font-mono text-[11px] font-semibold">{formatCurrency(record.amount)}</td>
+                  <td className="td">
+                    <span className="text-[10px] font-semibold capitalize text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-1">{record.status.replaceAll("_", " ")}</span>
+                  </td>
+                  <td className="td">
+                    <div className="flex gap-1.5">
+                      <Button size="xs" variant="primary" loading={pendingId === record.id} icon={<CheckCircle2 size={11} />} onClick={() => onApprove(record)}>Approve</Button>
+                      <button className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100" onClick={() => onOpen(record)} aria-label="Open record"><Eye size={13} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default function ActionCenterPage() {
   const qc             = useQueryClient();
   const { user } = useAuth();
   const { role } = useRole();
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [operationalPendingId, setOperationalPendingId] = useState<number | null>(null);
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["expenses", "action-center"],
     queryFn: loadActionCenterExpenses,
+  });
+  const { data: operationalRecords = [], isLoading: operationsLoading } = useQuery({
+    queryKey: ["operational-action-queue"],
+    queryFn: () => operationsApi.actionQueue().then(response => response.data),
   });
 
   // GA receipt review — reimbursements waiting for GA at step 0
@@ -132,19 +194,47 @@ export default function ActionCenterPage() {
   const toPay = queues.pay;
   const toSubmit = queues.submit;
 
-  const total = queues.total;
+  const total = queues.total + operationalRecords.length;
+
+  async function approveOperational(record: OperationalRecord) {
+    setOperationalPendingId(record.id);
+    try {
+      await operationsApi.transition(record.module, record.id, "approve");
+      toastSuccess("Record approved", `${record.reference_no} approved successfully`);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["operational-action-queue"] }),
+        qc.invalidateQueries({ queryKey: ["operational-records", record.module] }),
+        qc.invalidateQueries({ queryKey: ["operational-summary", record.module] }),
+      ]);
+    } catch (error) {
+      toastError("Approval failed", getErrorMessage(error));
+    } finally {
+      setOperationalPendingId(null);
+    }
+  }
+
+  function openOperational(record: OperationalRecord) {
+    const paths: Record<string, string> = {
+      procurement: "/procurement", accounts_payable: "/accounts-payable", accounting_tax: "/accounting-tax",
+      project_execution: "/project-execution", engineering_documents: "/engineering-documents",
+      quality_control: "/quality-control", hse: "/hse", warehouse_logistics: "/warehouse-logistics",
+      equipment_assets: "/equipment-assets", contract_management: "/contracts", crm_tender: "/crm-tenders",
+      manpower_operations: "/hris/manpower", budget_bi: "/budget-bi",
+    };
+    window.location.assign(`${paths[record.module] ?? "/home"}?record=${record.id}`);
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-xl font-bold text-gray-900">Action Center</h1>
         <p className="text-sm text-gray-400 mt-0.5">
-          {isLoading ? "Loading…" : total === 0 ? "All clear — no pending tasks" : `${total} item${total !== 1 ? "s" : ""} need your attention`}
+          {isLoading || operationsLoading ? "Loading…" : total === 0 ? "All clear — no pending tasks" : `${total} item${total !== 1 ? "s" : ""} need your attention`}
         </p>
       </div>
 
       {/* Summary pills */}
-      {!isLoading && (
+      {!isLoading && !operationsLoading && (
         <div className="flex flex-wrap gap-2">
           {[
             { label: "Receipt Review", count: toReceiptReview.length, color: "bg-amber-500"  },
@@ -152,6 +242,7 @@ export default function ActionCenterPage() {
             { label: "To Approve",     count: toApprove.length,       color: "bg-green-600"  },
             { label: "To Pay",         count: toPay.length,           color: "bg-purple-600" },
             { label: "Draft",          count: toSubmit.length,        color: "bg-gray-500"   },
+            { label: "Operational",    count: operationalRecords.length, color: "bg-[#0A3A63]" },
           ].map((p) => p.count > 0 && (
             <div key={p.label} className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-1.5 shadow-sm">
               <span className={`w-2 h-2 rounded-full ${p.color}`} />
@@ -162,7 +253,7 @@ export default function ActionCenterPage() {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading || operationsLoading ? (
         <TableSkeleton rows={6} cols={7} />
       ) : total === 0 ? (
         <Card className="py-14 text-center">
@@ -172,6 +263,12 @@ export default function ActionCenterPage() {
         </Card>
       ) : (
         <div className="space-y-6">
+          <OperationalActionGroup
+            records={operationalRecords}
+            onApprove={approveOperational}
+            onOpen={openOperational}
+            pendingId={operationalPendingId}
+          />
           <ActionGroup
             title="Receipt Review (GA)"
             icon={Receipt}

@@ -6,7 +6,9 @@ import {
   LayoutDashboard, Inbox, FolderKanban, TrendingUp, CreditCard,
   Package, FileText, BarChart2, ShieldCheck,
   LogOut, Settings, HeartPulse, Users, Fingerprint, CalendarDays, Banknote, UserPlus,
-  X, SlidersHorizontal, Home, LayoutGrid,
+  X, SlidersHorizontal, Home, LayoutGrid, Landmark, Calculator,
+  ClipboardList, ShoppingCart, DraftingCompass, BadgeCheck, HardHat,
+  Warehouse, Wrench, FileSignature, Handshake, UsersRound, ChartNoAxesCombined,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
@@ -31,14 +33,29 @@ const WORKSPACE_ITEMS: NavItem[] = [
 ];
 
 const FINANCE_ITEMS: NavItem[] = [
-  { href: "/spending",      menuKey: "spending",        label: "Spending",         icon: CreditCard      },
   { href: "/revenue",       menuKey: "revenue_ar",      label: "Revenue",          icon: TrendingUp      },
+  { href: "/spending",      menuKey: "spending",        label: "Spending",         icon: CreditCard      },
+  { href: "/accounts-payable", menuKey: "accounts_payable", label: "Accounts Payable", icon: Landmark       },
+  { href: "/accounting-tax", menuKey: "accounting_tax", label: "Accounting & Tax", icon: Calculator      },
   { href: "/reports",       menuKey: "reports",         label: "Reports",          icon: BarChart2       },
+  { href: "/budget-bi",     menuKey: "budget_bi",       label: "Budget & BI",      icon: ChartNoAxesCombined },
+];
+
+const PROJECT_EPC_ITEMS: NavItem[] = [
+  { href: "/project-execution", menuKey: "project_execution", label: "Project Execution", icon: ClipboardList },
+  { href: "/procurement", menuKey: "procurement", label: "Procurement", icon: ShoppingCart },
+  { href: "/engineering-documents", menuKey: "engineering_documents", label: "Engineering Documents", icon: DraftingCompass },
+  { href: "/quality-control", menuKey: "quality_control", label: "QA / QC", icon: BadgeCheck },
+  { href: "/hse", menuKey: "hse", label: "HSE", icon: HardHat },
 ];
 
 const OPERATIONS_ITEMS: NavItem[] = [
   { href: "/inventory",     menuKey: "inventory",       label: "Inventory & Stock",  icon: Package       },
+  { href: "/warehouse-logistics", menuKey: "warehouse_logistics", label: "Warehouse & Logistics", icon: Warehouse },
+  { href: "/equipment-assets", menuKey: "equipment_assets", label: "Equipment & Assets", icon: Wrench },
   { href: "/legal",         menuKey: "legal",           label: "Legal & Proposals",  icon: FileText      },
+  { href: "/contracts",     menuKey: "contract_management", label: "Contract Management", icon: FileSignature },
+  { href: "/crm-tenders",   menuKey: "crm_tender",      label: "CRM & Tenders", icon: Handshake },
   { href: "/vault",         menuKey: "vault",           label: "Vault",              icon: ShieldCheck, adminOnly: true },
 ];
 
@@ -49,6 +66,7 @@ const HRIS_ITEMS: NavItem[] = [
   { href: "/hris/leave",        menuKey: "hris_leave",       label: "Cuti & Izin",      icon: CalendarDays    },
   { href: "/hris/payroll",      menuKey: "hris_payroll",     label: "Penggajian",       icon: Banknote        },
   { href: "/hris/recruitment",  menuKey: "hris_recruitment", label: "Rekrutmen",        icon: UserPlus        },
+  { href: "/hris/manpower",     menuKey: "manpower_operations", label: "Manpower Operations", icon: UsersRound    },
   { href: "/hris/settings",     menuKey: "hris_settings",    label: "Pengaturan HRIS",  icon: SlidersHorizontal },
 ];
 
@@ -137,6 +155,7 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
 
   const visibleWorkspace  = WORKSPACE_ITEMS.filter(i => canAccessMenu(i.menuKey));
   const visibleFinance    = FINANCE_ITEMS.filter(i => canAccessMenu(i.menuKey));
+  const visibleProjectEpc = PROJECT_EPC_ITEMS.filter(i => canAccessMenu(i.menuKey));
   const visibleOps        = OPERATIONS_ITEMS.filter(i => {
     if (i.adminOnly && !isSuperAdmin) return false;
     return canAccessMenu(i.menuKey);
@@ -214,6 +233,15 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
           <>
             <SbSection label="Finance" dot="#D97706" />
             {visibleFinance.map(item => (
+              <NavLink key={item.href} item={item} active={isActive(item)} onClose={onClose} />
+            ))}
+          </>
+        )}
+
+        {visibleProjectEpc.length > 0 && (
+          <>
+            <SbSection label="Project & EPC" dot="#0891B2" />
+            {visibleProjectEpc.map(item => (
               <NavLink key={item.href} item={item} active={isActive(item)} onClose={onClose} />
             ))}
           </>

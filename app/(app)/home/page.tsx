@@ -7,6 +7,9 @@ import {
   Package, FileText, ShieldCheck,
   HeartPulse, Users, Fingerprint, CalendarDays,
   Banknote, UserPlus, Search, ArrowUpRight,
+  Landmark, Calculator, ClipboardList, ShoppingCart, DraftingCompass,
+  BadgeCheck, HardHat, Warehouse, Wrench, FileSignature, Handshake,
+  UsersRound, ChartNoAxesCombined,
 } from "lucide-react";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
@@ -34,7 +37,7 @@ function getEyebrow(): string {
 
 // ── Module data ────────────────────────────────────────────────────────────────
 
-type Section = "workspace" | "finance" | "operations" | "hris";
+type Section = "workspace" | "finance" | "project_epc" | "operations" | "hris";
 
 interface ModuleItem {
   href:     string;
@@ -52,9 +55,21 @@ const MODULES: ModuleItem[] = [
   { href: "/projects",         menuKey: "project_command",  label: "Project Command",    icon: FolderKanban,    color: "#0D9488", section: "workspace"  },
   { href: "/spending",         menuKey: "spending",         label: "Spending",           icon: CreditCard,      color: "#DC2626", section: "finance"    },
   { href: "/revenue",          menuKey: "revenue_ar",       label: "Revenue",            icon: TrendingUp,      color: "#16A34A", section: "finance"    },
+  { href: "/accounts-payable", menuKey: "accounts_payable", label: "Accounts Payable",   icon: Landmark,        color: "#0A3A63", section: "finance"    },
+  { href: "/accounting-tax",   menuKey: "accounting_tax",   label: "Accounting & Tax",   icon: Calculator,      color: "#D97706", section: "finance"    },
   { href: "/reports",          menuKey: "reports",          label: "Reports",            icon: BarChart2,       color: "#334155", section: "finance"    },
+  { href: "/budget-bi",        menuKey: "budget_bi",        label: "Budget & BI",        icon: ChartNoAxesCombined, color: "#0D9488", section: "finance" },
+  { href: "/project-execution", menuKey: "project_execution", label: "Project Execution", icon: ClipboardList, color: "#2563EB", section: "project_epc" },
+  { href: "/procurement",      menuKey: "procurement",      label: "Procurement",        icon: ShoppingCart,    color: "#D97706", section: "project_epc" },
+  { href: "/engineering-documents", menuKey: "engineering_documents", label: "Engineering Documents", icon: DraftingCompass, color: "#0E7490", section: "project_epc" },
+  { href: "/quality-control",  menuKey: "quality_control",  label: "QA / QC",            icon: BadgeCheck,      color: "#16A34A", section: "project_epc" },
+  { href: "/hse",              menuKey: "hse",              label: "HSE",                icon: HardHat,         color: "#DC2626", section: "project_epc" },
   { href: "/inventory",        menuKey: "inventory",        label: "Inventory & Stock",  icon: Package,         color: "#0E7490", section: "operations" },
+  { href: "/warehouse-logistics", menuKey: "warehouse_logistics", label: "Warehouse & Logistics", icon: Warehouse, color: "#0D9488", section: "operations" },
+  { href: "/equipment-assets", menuKey: "equipment_assets", label: "Equipment & Assets", icon: Wrench,          color: "#EA580C", section: "operations" },
   { href: "/legal",            menuKey: "legal",            label: "Legal & Proposals",  icon: FileText,        color: "#EA580C", section: "operations" },
+  { href: "/contracts",        menuKey: "contract_management", label: "Contract Management", icon: FileSignature, color: "#334155", section: "operations" },
+  { href: "/crm-tenders",      menuKey: "crm_tender",       label: "CRM & Tenders",      icon: Handshake,       color: "#2563EB", section: "operations" },
   { href: "/vault",            menuKey: "vault",            label: "Vault",              icon: ShieldCheck,     color: "#475569", section: "operations" },
   { href: "/hris",             menuKey: "hris_dashboard",   label: "HRIS Dashboard",     icon: HeartPulse,      color: "#7C3AED", section: "hris"       },
   { href: "/hris/employees",   menuKey: "hris_employees",   label: "Data Karyawan",      icon: Users,           color: "#0D9488", section: "hris"       },
@@ -62,11 +77,13 @@ const MODULES: ModuleItem[] = [
   { href: "/hris/leave",       menuKey: "hris_leave",       label: "Cuti & Izin",        icon: CalendarDays,    color: "#2563EB", section: "hris"       },
   { href: "/hris/payroll",     menuKey: "hris_payroll",     label: "Penggajian",         icon: Banknote,        color: "#EA580C", section: "hris"       },
   { href: "/hris/recruitment", menuKey: "hris_recruitment", label: "Rekrutmen",          icon: UserPlus,        color: "#16A34A", section: "hris"       },
+  { href: "/hris/manpower",    menuKey: "manpower_operations", label: "Manpower Operations", icon: UsersRound,    color: "#0E7490", section: "hris"       },
 ];
 
 const SECTIONS: { key: Section; label: string; sub: string; dot: string }[] = [
   { key: "workspace",  label: "Workspace",  sub: "Operasi harian",      dot: "#2563EB" },
   { key: "finance",    label: "Finance",    sub: "Keuangan & laporan",   dot: "#D97706" },
+  { key: "project_epc", label: "Project & EPC", sub: "Eksekusi & compliance", dot: "#0891B2" },
   { key: "operations", label: "Operations", sub: "Logistik & dokumen",   dot: "#0D9488" },
   { key: "hris",       label: "HRIS",       sub: "Sumber daya manusia",  dot: "#7C3AED" },
 ];

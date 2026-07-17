@@ -188,6 +188,14 @@ body {
   -webkit-backdrop-filter: blur(2px);
 }
 
+/* Compact top-bar controls shared by inbox, help, and account actions. */
+.topbar-icon {
+  @apply relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#5E7186] transition-colors hover:bg-[#F8FAF9] hover:text-[#0C2138];
+}
+.profile-menu-item {
+  @apply flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[12px] font-medium text-[#33445A] transition-colors hover:bg-[#F8FAF9];
+}
+
 /* ── Table helpers ──────────────────────────────────────────────────────────── */
 .th {
   @apply text-[10px] font-bold tracking-[0.08em] text-[#94A3B8] uppercase px-[18px] py-[11px] text-left whitespace-nowrap;

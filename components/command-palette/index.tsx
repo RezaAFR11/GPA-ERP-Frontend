@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandList, CommandSeparator } from "cmdk";
-import { FolderOpen, Receipt, DollarSign, FileText, Package, Search, Loader2 } from "lucide-react";
+import { BriefcaseBusiness, FolderOpen, Receipt, DollarSign, FileText, Package, Search, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { searchApi } from "@/lib/api";
 import { ResultItem } from "./result-item";
@@ -11,6 +11,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   draft:       { label: "Draft",     cls: "bg-gray-100 text-gray-600" },
   submitted:   { label: "Submitted", cls: "bg-blue-100 text-blue-700" },
+  in_review:   { label: "In Review", cls: "bg-cyan-100 text-cyan-700" },
   verified:    { label: "Verified",  cls: "bg-purple-100 text-purple-700" },
   approved:    { label: "Approved",  cls: "bg-emerald-100 text-emerald-700" },
   paid:        { label: "Paid",      cls: "bg-green-100 text-green-700" },
@@ -22,6 +23,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   on_hold:     { label: "On Hold",   cls: "bg-amber-100 text-amber-700" },
   completed:   { label: "Done",      cls: "bg-gray-100 text-gray-600" },
   cancelled:   { label: "Cancelled", cls: "bg-red-100 text-red-600" },
+  closed:      { label: "Closed", cls: "bg-slate-200 text-slate-700" },
 };
 
 interface CommandPaletteProps {
@@ -59,7 +61,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const hasResults = data && (
     data.projects.length + data.expenses.length + data.receivables.length +
-    data.legal_docs.length + data.inventory.length
+    data.legal_docs.length + data.inventory.length + data.operational_records.length
   ) > 0;
 
   if (!open) return null;
@@ -199,6 +201,25 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     secondary={`${i.code}  ·  ${i.qty_on_hand} ${i.unit}`}
                     badge={{ label: i.category, cls: "bg-amber-100 text-amber-700" }}
                     onSelect={() => navigate("/inventory")}
+                  />
+                ))}
+              </CommandGroup>
+            )}
+
+            {(data?.inventory.length ?? 0) > 0 && (data?.operational_records.length ?? 0) > 0 && <CommandSeparator className="my-1 border-gray-100" />}
+
+            {/* New operational workspaces share one search result contract. */}
+            {(data?.operational_records.length ?? 0) > 0 && (
+              <CommandGroup heading={<GroupLabel icon={<BriefcaseBusiness size={11} />} label="Operational Records" />}>
+                {data!.operational_records.map((record) => (
+                  <ResultItem
+                    key={`${record.module}-${record.id}`}
+                    icon={<BriefcaseBusiness size={13} className="text-cyan-700" />}
+                    iconBg="bg-cyan-50"
+                    primary={record.title}
+                    secondary={`${record.reference_no} · ${record.module.replaceAll("_", " ")}`}
+                    badge={STATUS_BADGE[record.status]}
+                    onSelect={() => navigate(`${record.path}?record=${record.id}`)}
                   />
                 ))}
               </CommandGroup>
