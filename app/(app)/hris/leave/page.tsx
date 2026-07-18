@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { LeaveRequestModal } from "./components/leave-request-modal";
 import { hrisLeaveApi, hrisEmployeesApi } from "@/lib/api";
 import type { LeaveRequest, Employee, RoleName } from "@/lib/types";
@@ -16,6 +17,9 @@ import { cn, fmtDate } from "@/lib/utils";
 import { useRole } from "@/lib/auth-context";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import { toastError } from "@/lib/hooks/use-toast";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type LeaveSortKey = "employee" | "leave_type" | "period" | "days" | "status" | "approver";
 
 /* ─── Status config ──────────────────────────────────────────────────────── */
 const STATUS_CFG: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
@@ -147,6 +151,7 @@ export default function LeavePage() {
   const [showNew,       setShowNew]       = useState(false);
   const [actionReq,     setActionReq]     = useState<LeaveRequest | null>(null);
   const [actionType,    setActionType]    = useState<"approve" | "reject">("approve");
+  const tableSort = useTableSort<LeaveSortKey>("period", "desc");
 
   /* Employees */
   const { data: empData } = useQuery({
@@ -179,6 +184,15 @@ export default function LeavePage() {
     }).then(r => r.data),
   });
   const requests: LeaveRequest[] = reqData?.items ?? [];
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+  const sortedRequests = sortTableRows(requests, tableSort.sortKey, tableSort.sortDirection, {
+    employee: (request) => employeeById.get(request.employee_id)?.full_name,
+    leave_type: (request) => request.leave_type?.name,
+    period: (request) => request.start_date,
+    days: (request) => request.days,
+    status: (request) => request.status,
+    approver: (request) => request.current_approver_role,
+  });
 
   /* Seed balance mutation */
   const seedMut = useMutation({
@@ -292,11 +306,13 @@ export default function LeavePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {["Karyawan","Jenis Cuti","Periode","Hari","Status","Approver","Aksi"].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
+                <SortableTableHeader label="Karyawan" column="employee" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Jenis Cuti" column="leave_type" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Periode" column="period" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Hari" column="days" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Approver" column="approver" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <th className="th">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -316,8 +332,8 @@ export default function LeavePage() {
                         </td>
                       </tr>
                     )
-                  : requests.map(req => {
-                      const emp = employees.find(e => e.id === req.employee_id);
+                  : sortedRequests.map(req => {
+                      const emp = employeeById.get(req.employee_id);
                       const cfg = STATUS_CFG[req.status] ?? STATUS_CFG.draft;
                       return (
                         <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">

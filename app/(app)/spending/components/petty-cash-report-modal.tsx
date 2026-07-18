@@ -9,7 +9,9 @@ import { costCentresApi, costCodesApi, expensesApi, pettyCashReportsApi, project
 import { formatCurrency, getErrorMessage } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { AuthenticatedImage } from "@/components/ui/authenticated-image";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 
 type Row = {
   id: string;
@@ -22,6 +24,7 @@ type Row = {
   source?: "manual" | "clipboard" | "ocr";
   ocr_text?: string;
 };
+type PettyCashRowSortKey = "date" | "description" | "amount";
 
 interface Props {
   open: boolean;
@@ -235,6 +238,7 @@ export default function PettyCashReportModal({ open, onClose }: Props) {
   const [ocrText, setOcrText] = useState("");
   const [showPasteArea, setShowPasteArea] = useState(false);
   const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const tableSort = useTableSort<PettyCashRowSortKey>("date", "asc");
 
   const { data: projects = [] } = useQuery({
     queryKey: ["projects", "active-for-petty-cash"],
@@ -254,6 +258,11 @@ export default function PettyCashReportModal({ open, onClose }: Props) {
 
   const leafCodes = costCodes.filter((code) => code.parent_id !== null);
   const total = useMemo(() => rows.reduce((sum, row) => sum + parseAmount(row.amount), 0), [rows]);
+  const sortedRows = sortTableRows(rows, tableSort.sortKey, tableSort.sortDirection, {
+    date: (row) => row.date,
+    description: (row) => row.description,
+    amount: (row) => parseAmount(row.amount),
+  });
 
   const updateRow = useCallback((id: string, patch: Partial<Row>) => {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
@@ -517,9 +526,9 @@ export default function PettyCashReportModal({ open, onClose }: Props) {
             <table className="w-full min-w-[760px] table-fixed bg-white border border-gray-100 rounded-lg overflow-hidden">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="th w-[120px]">Date</th>
-                  <th className="th">Description</th>
-                  <th className="th w-[150px] text-right">Amount</th>
+                  <SortableTableHeader label="Date" column="date" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="w-[120px]" />
+                  <SortableTableHeader label="Description" column="description" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                  <SortableTableHeader label="Amount" column="amount" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="w-[150px]" />
                   <th className="th w-[210px]">
                     Receipt
                     <span className="ml-1 text-[9px] text-gray-300 font-normal normal-case">paste · drop · pick</span>
@@ -528,7 +537,7 @@ export default function PettyCashReportModal({ open, onClose }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {rows.map((row) => (
+                {sortedRows.map((row) => (
                   <tr key={row.id}>
                     <td className="td">
                       <input

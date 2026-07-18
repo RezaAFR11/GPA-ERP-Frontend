@@ -3,9 +3,9 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
-  Plus, Search, Filter, SlidersHorizontal, ChevronUp, ChevronDown,
+  Plus, Search,
   ChevronLeft, ChevronRight, MoreHorizontal, CheckCircle2, Send,
-  XCircle, ArrowDownUp, ClipboardList, FileSpreadsheet, Copy, Printer,
+  XCircle, ClipboardList, FileSpreadsheet, Copy, Printer,
   History, Receipt, Trash2,
 } from "lucide-react";
 import { expensesApi, pettyCashReportsApi, projectsApi } from "@/lib/api";
@@ -19,6 +19,7 @@ import { Modal } from "@/components/ui/modal";
 import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { ExpenseStatusBadge, ApproverPill } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import NewExpenseModal from "@/components/spending/new-expense-modal";
 import PettyCashReportModal from "./components/petty-cash-report-modal";
 import ExpenseVoucherModal from "./components/expense-voucher-modal";
@@ -27,10 +28,10 @@ import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { getExpenseActionPermissions } from "@/lib/action-center";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import type { Expense, ExpenseStatus, RoleName } from "@/lib/types";
 
-type SortKey   = "id" | "amount" | "created_at" | "status";
-type SortDir   = "asc" | "desc";
+type SortKey = "id" | "expense_type" | "project" | "description" | "cost_code" | "amount" | "status" | "created_at" | "approver";
 const PAGE_SIZE = 10;
 
 const STATUS_OPTIONS: { label: string; value: ExpenseStatus | "" }[] = [
@@ -243,31 +244,6 @@ function ActionMenu({
 }
 
 // ── Sortable header ───────────────────────────────────────────────────────────
-function SortTh({
-  label, field, sort, dir, onSort,
-}: {
-  label: string; field: SortKey;
-  sort: SortKey; dir: SortDir;
-  onSort: (f: SortKey) => void;
-}) {
-  const active = sort === field;
-  return (
-    <th
-      className="th cursor-pointer select-none hover:text-gray-600 transition-colors"
-      onClick={() => onSort(field)}
-    >
-      <span className="flex items-center gap-1">
-        {label}
-        <span className={`transition-opacity ${active ? "opacity-100" : "opacity-30"}`}>
-          {active && dir === "asc"
-            ? <ChevronUp size={10} />
-            : <ChevronDown size={10} />}
-        </span>
-      </span>
-    </th>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SpendingPage() {
   const qc           = useQueryClient();
@@ -283,9 +259,8 @@ export default function SpendingPage() {
   const [search,        setSearch]       = useState("");
   const [statusFilter,  setStatus]       = useState<ExpenseStatus | "">("");
   const [projectFilter, setProject]      = useState<number | "">("");
-  const [sortKey,       setSort]         = useState<SortKey>("id");
-  const [sortDir,       setSortDir]      = useState<SortDir>("desc");
   const [page,          setPage]         = useState(1);
+  const { sortKey, sortDirection, toggleSort: toggleTableSort } = useTableSort<SortKey>("id", "desc");
 
   // Auto-open new expense modal when navigated via FAB (?new=1)
   useEffect(() => {
@@ -341,6 +316,10 @@ export default function SpendingPage() {
     queryFn:  () => projectsApi.list({ limit: 500 }).then((r) => r.data.items),
     enabled:  !isSelfService,   // STAFF/WORKER have no project_command access
   });
+  const projectCodeById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.code])),
+    [projects],
+  );
 
   const { data: pettyReports = [] } = useQuery({
     queryKey: ["petty-cash-reports", projectFilter],
@@ -369,25 +348,24 @@ export default function SpendingPage() {
       (e.cost_code?.name ?? "").toLowerCase().includes(search.toLowerCase())
     );
 
-    rows = [...rows].sort((a, b) => {
-      let av: number | string, bv: number | string;
-      if (sortKey === "id")         { av = a.id;         bv = b.id; }
-      else if (sortKey === "amount") { av = a.amount;    bv = b.amount; }
-      else if (sortKey === "status") { av = a.status;    bv = b.status; }
-      else                          { av = a.created_at; bv = b.created_at; }
-      return sortDir === "asc"
-        ? av < bv ? -1 : av > bv ? 1 : 0
-        : av > bv ? -1 : av < bv ? 1 : 0;
+    return sortTableRows(rows, sortKey, sortDirection, {
+      id: (expense) => expense.id,
+      expense_type: (expense) => expense.expense_type,
+      project: (expense) => expense.project_id ? projectCodeById.get(expense.project_id) : null,
+      description: (expense) => expense.description,
+      cost_code: (expense) => expense.cost_code?.code,
+      amount: (expense) => expense.amount,
+      status: (expense) => expense.status,
+      created_at: (expense) => expense.created_at,
+      approver: (expense) => expense.current_approver_role,
     });
-    return rows;
-  }, [allExpenses, search, sortKey, sortDir]);
+  }, [allExpenses, projectCodeById, search, sortDirection, sortKey]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSort(key); setSortDir("desc"); }
+    toggleTableSort(key);
     setPage(1);
   }
 
@@ -542,15 +520,15 @@ export default function SpendingPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <SortTh label="#"        field="id"         sort={sortKey} dir={sortDir} onSort={toggleSort} />
-                  {!isSelfService && <th className="th">Type</th>}
-                  {!isSelfService && <th className="th">Project</th>}
-                  <th className="th">Description</th>
-                  <th className="th hidden md:table-cell">Cost Code</th>
-                  <SortTh label="Amount"   field="amount"     sort={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortTh label="Status"   field="status"     sort={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortTh label="Date"     field="created_at" sort={sortKey} dir={sortDir} onSort={toggleSort} />
-                  {!isSelfService && <th className="th hidden lg:table-cell">Approver</th>}
+                  <SortableTableHeader label="#" column="id" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                  {!isSelfService && <SortableTableHeader label="Type" column="expense_type" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />}
+                  {!isSelfService && <SortableTableHeader label="Project" column="project" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />}
+                  <SortableTableHeader label="Description" column="description" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                  <SortableTableHeader label="Cost Code" column="cost_code" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+                  <SortableTableHeader label="Amount" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} align="right" />
+                  <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                  <SortableTableHeader label="Date" column="created_at" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                  {!isSelfService && <SortableTableHeader label="Approver" column="approver" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />}
                   <th className="th" />
                 </tr>
               </thead>

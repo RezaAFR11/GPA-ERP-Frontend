@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { ClockInModal } from "./components/clock-in-modal";
 import { hrisAttendanceApi, hrisEmployeesApi, hrisWorkGroupsApi, hrisOvertimeApi } from "@/lib/api";
 import { useRole } from "@/lib/auth-context";
@@ -18,6 +19,11 @@ import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { SelfieModal } from "@/components/hris/SelfieModal";
 import { AuthenticatedImage } from "@/components/ui/authenticated-image";
 import { cn } from "@/lib/utils";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type OvertimeSortKey = "employee" | "date" | "planned_hours" | "reason" | "status";
+type AttendanceSortKey = "date" | "employee" | "clock_in" | "clock_out" | "regular" | "overtime" | "source" | "location" | "face";
+type AttendanceSummarySortKey = "employee" | "department" | "days" | "regular" | "ot_weekday" | "ot_weekend" | "ot_holiday" | "total";
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const MONTHS = [
@@ -73,10 +79,18 @@ function OvertimeApprovalPanel() {
   const [filterStatus, setFilterStatus] = useState<"" | "submitted" | "approved" | "rejected">("");
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const tableSort = useTableSort<OvertimeSortKey>("date", "desc");
 
   const { data: requests = [], isLoading } = useQuery<OvertimeRequest[]>({
     queryKey: ["hris", "overtime-requests", filterStatus],
     queryFn: () => hrisOvertimeApi.list(filterStatus ? { status: filterStatus } : undefined).then(r => r.data),
+  });
+  const sortedRequests = sortTableRows(requests, tableSort.sortKey, tableSort.sortDirection, {
+    employee: (request) => request.employee_name,
+    date: (request) => request.date,
+    planned_hours: (request) => request.planned_hours,
+    reason: (request) => request.reason,
+    status: (request) => request.status,
   });
 
   const approveMut = useMutation({
@@ -129,11 +143,12 @@ function OvertimeApprovalPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {["Karyawan","Tanggal","Rencana Jam","Alasan","Status","Aksi"].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
+                <SortableTableHeader label="Karyawan" column="employee" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Tanggal" column="date" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Rencana Jam" column="planned_hours" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Alasan" column="reason" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <th className="th">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -153,7 +168,7 @@ function OvertimeApprovalPanel() {
                         </td>
                       </tr>
                     )
-                  : requests.map(req => (
+                  : sortedRequests.map(req => (
                       <tr key={req.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-4 py-3">
                           <p className="text-xs font-medium text-gray-900">{req.employee_name ?? `#${req.employee_id}`}</p>
@@ -326,6 +341,8 @@ export default function AttendancePage() {
   const [showManual,   setShowManual]   = useState(false);
   const [clockInEmp,   setClockInEmp]   = useState<Employee | null>(null);
   const [selfieRec,    setSelfieRec]    = useState<AttendanceRecord | null>(null);
+  const attendanceSort = useTableSort<AttendanceSortKey>("date", "desc");
+  const summarySort = useTableSort<AttendanceSummarySortKey>("employee", "asc");
 
   const dateFrom = `${year}-${String(month).padStart(2, "0")}-01`;
   const dateToRaw = new Date(year, month, 0);
@@ -337,6 +354,7 @@ export default function AttendancePage() {
     queryFn:  () => hrisEmployeesApi.list({ limit: 500 }).then(r => r.data),
   });
   const employees = empData?.items ?? [];
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
 
   /* Work groups for filter */
   const { data: workGroups = [] } = useQuery<WorkGroup[]>({
@@ -397,6 +415,32 @@ export default function AttendancePage() {
     const s    = search.toLowerCase();
     return name.includes(s) || no.includes(s) || r.date.includes(s);
   });
+  const sortedFiltered = sortTableRows(filtered, attendanceSort.sortKey, attendanceSort.sortDirection, {
+    date: (record) => record.date,
+    employee: (record) => employeeById.get(record.employee_id)?.full_name,
+    clock_in: (record) => record.clock_in,
+    clock_out: (record) => record.clock_out,
+    regular: (record) => record.hours_regular,
+    overtime: (record) => Number(record.hours_overtime_weekday ?? 0) + Number(record.hours_overtime_weekend ?? 0) + Number(record.hours_overtime_holiday ?? 0),
+    source: (record) => record.source,
+    location: (record) => record.matched_location_name,
+    face: (record) => record.face_verified,
+  });
+  const sortedSummary = sortTableRows(
+    summary as AttendanceSummaryItem[],
+    summarySort.sortKey,
+    summarySort.sortDirection,
+    {
+      employee: (row) => row.full_name,
+      department: (row) => row.department,
+      days: (row) => row.days_present,
+      regular: (row) => row.hours_regular,
+      ot_weekday: (row) => row.hours_overtime_weekday,
+      ot_weekend: (row) => row.hours_overtime_weekend,
+      ot_holiday: (row) => row.hours_overtime_holiday,
+      total: (row) => row.total_hours,
+    },
+  );
 
   /* Navigation */
   function prevMonth() {
@@ -532,11 +576,16 @@ export default function AttendancePage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {["Tanggal","Karyawan","Masuk","Keluar","Jam Kerja","Lembur","Sumber","Lokasi","Face",""].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
+                      <SortableTableHeader label="Tanggal" column="date" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Karyawan" column="employee" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Masuk" column="clock_in" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Keluar" column="clock_out" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Jam Kerja" column="regular" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Lembur" column="overtime" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Sumber" column="source" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Lokasi" column="location" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <SortableTableHeader label="Face" column="face" sortKey={attendanceSort.sortKey} sortDirection={attendanceSort.sortDirection} onSort={attendanceSort.toggleSort} />
+                      <th className="th" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -556,8 +605,8 @@ export default function AttendancePage() {
                               </td>
                             </tr>
                           )
-                        : filtered.map(rec => {
-                            const emp  = employees.find(e => e.id === rec.employee_id);
+                        : sortedFiltered.map(rec => {
+                            const emp  = employeeById.get(rec.employee_id);
                             const totalOT = (Number(rec.hours_overtime_weekday ?? 0) +
                               Number(rec.hours_overtime_weekend ?? 0) + Number(rec.hours_overtime_holiday ?? 0));
                             const hasClockOut = !!rec.clock_out;
@@ -646,8 +695,8 @@ export default function AttendancePage() {
                       Belum ada data absensi untuk periode ini
                     </div>
                   )
-                : filtered.map(rec => {
-                    const emp = employees.find(e => e.id === rec.employee_id);
+                : sortedFiltered.map(rec => {
+                    const emp = employeeById.get(rec.employee_id);
                     const totalOT = (Number(rec.hours_overtime_weekday ?? 0) +
                       Number(rec.hours_overtime_weekend ?? 0) + Number(rec.hours_overtime_holiday ?? 0));
                     const hasClockOut = !!rec.clock_out;
@@ -746,11 +795,14 @@ export default function AttendancePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["Karyawan","Departemen","Hari Hadir","Jam Normal","Lembur WD","Lembur WE","Lembur Libur","Total Jam"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
+                  <SortableTableHeader label="Karyawan" column="employee" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Departemen" column="department" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Hari Hadir" column="days" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Jam Normal" column="regular" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Lembur WD" column="ot_weekday" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Lembur WE" column="ot_weekend" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Lembur Libur" column="ot_holiday" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
+                  <SortableTableHeader label="Total Jam" column="total" sortKey={summarySort.sortKey} sortDirection={summarySort.sortDirection} onSort={summarySort.toggleSort} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -770,7 +822,7 @@ export default function AttendancePage() {
                           </td>
                         </tr>
                       )
-                    : (summary as AttendanceSummaryItem[]).map(row => (
+                    : sortedSummary.map(row => (
                         <tr key={row.employee_id} className="hover:bg-gray-50/50">
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900 text-xs">{row.full_name}</p>

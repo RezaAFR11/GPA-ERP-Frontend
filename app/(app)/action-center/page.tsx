@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Eye, ShieldCheck, Banknote, Send, AlertCircle, X, Receipt, BriefcaseBusiness } from "lucide-react";
 import { expensesApi, operationsApi } from "@/lib/api";
@@ -8,12 +8,17 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ExpenseStatusBadge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { getActionCenterQueues, loadActionCenterExpenses } from "@/lib/action-center";
 import type { Expense, OperationalRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type ExpenseQueueSortKey = "id" | "description" | "cost_code" | "amount" | "created_at" | "status";
+type OperationalQueueSortKey = "module" | "reference_no" | "title" | "amount" | "status";
 
 interface GroupProps {
   title:    string;
@@ -27,6 +32,15 @@ interface GroupProps {
 
 function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onView }: GroupProps) {
   const qc = useQueryClient();
+  const { sortKey, sortDirection, toggleSort } = useTableSort<ExpenseQueueSortKey>("id", "desc");
+  const sortedExpenses = useMemo(() => sortTableRows(expenses, sortKey, sortDirection, {
+    id: (expense) => expense.id,
+    description: (expense) => expense.description,
+    cost_code: (expense) => expense.cost_code?.code,
+    amount: (expense) => expense.amount,
+    created_at: (expense) => expense.created_at,
+    status: (expense) => expense.status,
+  }), [expenses, sortDirection, sortKey]);
 
   async function handleAction(id: number) {
     try {
@@ -56,17 +70,17 @@ function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onVie
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="th">#</th>
-              <th className="th">Description</th>
-              <th className="th hidden md:table-cell">Cost Code</th>
-              <th className="th text-right">Amount</th>
-              <th className="th hidden lg:table-cell">Submitted</th>
-              <th className="th">Status</th>
+              <SortableTableHeader label="#" column="id" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableTableHeader label="Description" column="description" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+              <SortableTableHeader label="Cost Code" column="cost_code" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="hidden md:table-cell" />
+              <SortableTableHeader label="Amount" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} align="right" />
+              <SortableTableHeader label="Submitted" column="created_at" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="hidden lg:table-cell" />
+              <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
               <th className="th">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {expenses.map((exp) => (
+            {sortedExpenses.map((exp) => (
               <tr key={exp.id} className="hover:bg-gray-50/50 transition-colors">
                 <td className="td num text-gray-400 text-xs">#{exp.id}</td>
                 <td className="td">
@@ -123,6 +137,14 @@ function OperationalActionGroup({
   onOpen: (record: OperationalRecord) => void;
   pendingId: number | null;
 }) {
+  const { sortKey, sortDirection, toggleSort } = useTableSort<OperationalQueueSortKey>("reference_no", "asc");
+  const sortedRecords = useMemo(() => sortTableRows(records, sortKey, sortDirection, {
+    module: (record) => record.module,
+    reference_no: (record) => record.reference_no,
+    title: (record) => record.title,
+    amount: (record) => record.amount,
+    status: (record) => record.status,
+  }), [records, sortDirection, sortKey]);
   if (records.length === 0) return null;
   return (
     <div>
@@ -138,13 +160,16 @@ function OperationalActionGroup({
           <table className="w-full min-w-[820px]">
             <thead>
               <tr>
-                <th className="th">Module</th><th className="th">Reference</th>
-                <th className="th">Title</th><th className="th text-right">Value</th>
-                <th className="th">Status</th><th className="th">Action</th>
+                <SortableTableHeader label="Module" column="module" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                <SortableTableHeader label="Reference" column="reference_no" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                <SortableTableHeader label="Title" column="title" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                <SortableTableHeader label="Value" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} align="right" />
+                <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} />
+                <th className="th">Action</th>
               </tr>
             </thead>
             <tbody>
-              {records.map(record => (
+              {sortedRecords.map(record => (
                 <tr key={`${record.module}-${record.id}`}>
                   <td className="td text-[11px] font-semibold capitalize">{record.module.replaceAll("_", " ")}</td>
                   <td className="td text-[11px] font-mono">{record.reference_no}</td>

@@ -9,9 +9,11 @@ import { inventoryApi, projectsApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionModal } from "@/components/ui/confirm-action-modal";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { Pagination } from "@/components/ui/pagination";
 import { cn, formatCurrency, fmtDate, getErrorMessage } from "@/lib/utils";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
+import { useTableSort } from "@/lib/table-sort";
 import type { InventoryItem, InventoryItemCreate, InventoryTxnCreate, ItemCategory, TxnType } from "@/lib/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ const UNITS = ["pcs", "set", "unit", "kg", "ltr", "m", "m²", "m³", "roll", "bo
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary";
+type InventorySortKey = "item" | "location" | "qty_on_hand" | "unit_cost" | "stock_value" | "stock_level";
 const labelCls = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5";
 
 function CategoryBadge({ cat }: { cat: ItemCategory }) {
@@ -399,14 +402,22 @@ export default function InventoryPage() {
   const [txnItem,   setTxnItem]   = useState<InventoryItem | null>(null);
   const [histItem,  setHistItem]  = useState<InventoryItem | null>(null);
   const [deactivating, setDeactivating] = useState<InventoryItem | null>(null);
+  const { sortKey, sortDirection, toggleSort } = useTableSort<InventorySortKey>("item", "asc");
+
+  function handleSort(column: InventorySortKey) {
+    toggleSort(column);
+    setPage(1);
+  }
 
   const { data: invData, isLoading } = useQuery({
-    queryKey: ["inventory", "list", catFilter, lowOnly, showInactive, search, page],
+    queryKey: ["inventory", "list", catFilter, lowOnly, showInactive, search, sortKey, sortDirection, page],
     queryFn:  () => inventoryApi.list({
       category:  catFilter !== "all" ? catFilter : undefined,
       low_stock: lowOnly || undefined,
       is_active: !showInactive,
       q:         search   || undefined,
+      sort_by:   sortKey,
+      sort_dir:  sortDirection,
       skip:      (page - 1) * PAGE_SIZE,
       limit:     PAGE_SIZE,
     }).then(r => r.data),
@@ -578,12 +589,12 @@ export default function InventoryPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <th className="th text-left">Item</th>
-                  <th className="th text-left hidden md:table-cell">Lokasi</th>
-                  <th className="th text-right">Stok</th>
-                  <th className="th text-right hidden sm:table-cell">Harga Satuan</th>
-                  <th className="th text-right hidden lg:table-cell">Nilai Stok</th>
-                  <th className="th text-center">Level</th>
+                  <SortableTableHeader label="Item" column="item" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />
+                  <SortableTableHeader label="Lokasi" column="location" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="hidden md:table-cell" />
+                  <SortableTableHeader label="Stok" column="qty_on_hand" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                  <SortableTableHeader label="Harga Satuan" column="unit_cost" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="hidden sm:table-cell" />
+                  <SortableTableHeader label="Nilai Stok" column="stock_value" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="hidden lg:table-cell" />
+                  <SortableTableHeader label="Level" column="stock_level" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="center" />
                   <th className="th" />
                 </tr>
               </thead>

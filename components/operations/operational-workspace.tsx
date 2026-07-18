@@ -23,11 +23,15 @@ import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
+import { useTableSort } from "@/lib/table-sort";
 
 
 interface OperationalWorkspaceProps {
   moduleKey: string;
 }
+
+type OperationalSortKey = "id" | "reference_no" | "record_type" | "title" | "project_partner" | "amount" | "progress" | "due_date" | "status";
 
 interface ModulePresentation {
   singular: string;
@@ -382,6 +386,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
   const [transition, setTransition] = useState<{ record: OperationalRecord; action: string } | null>(null);
   const [transitionNote, setTransitionNote] = useState("");
   const [deleting, setDeleting] = useState<OperationalRecord | null>(null);
+  const { sortKey, sortDirection, toggleSort } = useTableSort<OperationalSortKey>("id", "desc");
 
   const modulesQuery = useQuery({
     queryKey: ["operational-modules"],
@@ -391,12 +396,14 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
   const module = modulesQuery.data?.find(item => item.key === moduleKey);
 
   const recordsQuery = useQuery({
-    queryKey: ["operational-records", moduleKey, search, statusFilter, typeFilter, projectFilter],
+    queryKey: ["operational-records", moduleKey, search, statusFilter, typeFilter, projectFilter, sortKey, sortDirection],
     queryFn: () => operationsApi.list(moduleKey, {
       search: search || undefined,
       status: statusFilter || undefined,
       record_type: typeFilter || undefined,
       project_id: projectFilter ? Number(projectFilter) : undefined,
+      sort_by: sortKey,
+      sort_dir: sortDirection,
       limit: 500,
     }).then(response => response.data),
     enabled: !!module,
@@ -559,14 +566,14 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
             <table className="w-full min-w-[1080px] table-fixed">
               <thead>
                 <tr className="border-b border-[#E7E5DF]">
-                  <th className="th w-[140px]">Reference</th>
-                  <th className="th w-[160px]">Type</th>
-                  <th className="th w-[250px]">Title</th>
-                  <th className="th w-[180px]">Project / Partner</th>
-                  <th className="th w-[135px] text-right">Value</th>
-                  <th className="th w-[120px]">Progress</th>
-                  <th className="th w-[110px]">Due</th>
-                  <th className="th w-[110px]">Status</th>
+                  <SortableTableHeader label="Reference" column="reference_no" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[140px]" />
+                  <SortableTableHeader label="Type" column="record_type" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[160px]" />
+                  <SortableTableHeader label="Title" column="title" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[250px]" />
+                  <SortableTableHeader label="Project / Partner" column="project_partner" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[180px]" />
+                  <SortableTableHeader label="Value" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} align="right" className="w-[135px]" />
+                  <SortableTableHeader label="Progress" column="progress" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[120px]" />
+                  <SortableTableHeader label="Due" column="due_date" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[110px]" />
+                  <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[110px]" />
                   <th className="th w-[64px] text-center">Action</th>
                 </tr>
               </thead>

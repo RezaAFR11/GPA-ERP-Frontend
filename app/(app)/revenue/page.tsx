@@ -15,7 +15,9 @@ import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Pagination } from "@/components/ui/pagination";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
+import { useTableSort } from "@/lib/table-sort";
 import { useRole } from "@/lib/auth-context";
 import type { AccountReceivable } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -34,6 +36,7 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 type PaymentFilter = "all" | "paid" | "partial" | "open";
+type RevenueSortKey = "id" | "invoice_no" | "project" | "customer_name" | "description" | "amount" | "paid" | "outstanding" | "due_date" | "status";
 const PAGE_SIZE = 20;
 
 function paidAmount(ar: AccountReceivable) {
@@ -158,6 +161,12 @@ export default function RevenuePage() {
   const [amtDisp, setAmtD] = useState("");
   const [paidDisp, setPaidD] = useState("");
   const [editAmounts, setEditAmounts] = useState({ amount: "", paid: "", remaining: "" });
+  const { sortKey, sortDirection, toggleSort } = useTableSort<RevenueSortKey>("id", "desc");
+
+  function handleSort(column: RevenueSortKey) {
+    toggleSort(column);
+    setPage(1);
+  }
 
   const receivableFilters = useMemo(() => ({
     ...(paymentFilter !== "all" ? { payment_state: paymentFilter } : {}),
@@ -165,9 +174,11 @@ export default function RevenuePage() {
   }), [paymentFilter, search]);
 
   const { data: revenueData, isLoading } = useQuery({
-    queryKey: ["receivables", "cash-collection", paymentFilter, search, page],
+    queryKey: ["receivables", "cash-collection", paymentFilter, search, sortKey, sortDirection, page],
     queryFn: () => receivablesApi.list({
       ...receivableFilters,
+      sort_by: sortKey,
+      sort_dir: sortDirection,
       skip:  (page - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,
     }).then((r) => r.data),
@@ -405,15 +416,15 @@ export default function RevenuePage() {
             <table className="w-full min-w-[1040px] table-fixed">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="th w-[170px]">Invoice</th>
-                  <th className="th w-[130px]">Project</th>
-                  <th className="th w-[170px]">Client</th>
-                  <th className="th w-[250px]">Description</th>
-                  <th className="th w-[125px] text-right border-l border-gray-100">Invoiced</th>
-                  <th className="th w-[125px] text-right border-l border-gray-100">Paid</th>
-                  <th className="th w-[135px] text-right border-l border-gray-100">Outstanding</th>
-                  <th className="th w-[95px]">Due</th>
-                  <th className="th w-[145px]">Revenue / Payment</th>
+                  <SortableTableHeader label="Invoice" column="invoice_no" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[170px]" />
+                  <SortableTableHeader label="Project" column="project" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[130px]" />
+                  <SortableTableHeader label="Client" column="customer_name" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[170px]" />
+                  <SortableTableHeader label="Description" column="description" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[250px]" />
+                  <SortableTableHeader label="Invoiced" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="w-[125px] border-l border-gray-100" />
+                  <SortableTableHeader label="Paid" column="paid" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="w-[125px] border-l border-gray-100" />
+                  <SortableTableHeader label="Outstanding" column="outstanding" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="w-[135px] border-l border-gray-100" />
+                  <SortableTableHeader label="Due" column="due_date" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[95px]" />
+                  <SortableTableHeader label="Revenue / Payment" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="w-[145px]" />
                   <th className="th w-[90px] text-center">Action</th>
                 </tr>
               </thead>

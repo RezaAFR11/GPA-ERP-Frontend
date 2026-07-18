@@ -18,7 +18,9 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProjectStatusBadge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { cn } from "@/lib/utils";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import { toastError } from "@/lib/hooks/use-toast";
 import type { Project, ProjectStatus, Expense, AccountReceivable } from "@/lib/types";
@@ -27,6 +29,8 @@ const STATUS_OPTS: ProjectStatus[] = ["active", "on_hold", "completed", "cancell
 const STATUS_LABEL: Record<ProjectStatus, string> = {
   active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled",
 };
+type ProjectExpenseSortKey = "description" | "cost_code" | "amount" | "status" | "date";
+type ProjectRevenueSortKey = "description" | "amount" | "status" | "date";
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function Toast({ msg, ok }: { msg: string; ok: boolean }) {
@@ -184,9 +188,17 @@ function EditModal({
 
 // ── Expenses Tab ──────────────────────────────────────────────────────────────
 function ExpensesTab({ projectId, currency }: { projectId: number; currency: string }) {
+  const tableSort = useTableSort<ProjectExpenseSortKey>("date", "desc");
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["expenses", { project_id: projectId }],
     queryFn: () => expensesApi.list({ project_id: projectId }).then((r) => r.data.items),
+  });
+  const sortedExpenses = sortTableRows(expenses, tableSort.sortKey, tableSort.sortDirection, {
+    description: (expense) => expense.description,
+    cost_code: (expense) => expense.cost_code?.code,
+    amount: (expense) => expense.amount,
+    status: (expense) => expense.status,
+    date: (expense) => expense.created_at,
   });
 
   const total = expenses.reduce((s, e) => s + e.amount, 0);
@@ -209,11 +221,11 @@ function ExpensesTab({ projectId, currency }: { projectId: number; currency: str
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Description</th>
-                <th className="th hidden md:table-cell">Cost Code</th>
-                <th className="th text-right">Amount</th>
-                <th className="th hidden sm:table-cell">Status</th>
-                <th className="th hidden lg:table-cell">Date</th>
+                <SortableTableHeader label="Description" column="description" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Cost Code" column="cost_code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="Amount" column="amount" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden sm:table-cell" />
+                <SortableTableHeader label="Date" column="date" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden lg:table-cell" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -223,7 +235,7 @@ function ExpensesTab({ projectId, currency }: { projectId: number; currency: str
                     No expenses recorded for this project
                   </td>
                 </tr>
-              ) : expenses.map((exp) => {
+              ) : sortedExpenses.map((exp) => {
                 const sc = EXPENSE_STATUS_COLORS[exp.status];
                 return (
                   <tr key={exp.id} className="hover:bg-gray-50/60 transition-colors">
@@ -266,9 +278,16 @@ function ExpensesTab({ projectId, currency }: { projectId: number; currency: str
 
 // ── Revenue Tab ───────────────────────────────────────────────────────────────
 function RevenueTab({ projectId, currency }: { projectId: number; currency: string }) {
+  const tableSort = useTableSort<ProjectRevenueSortKey>("date", "desc");
   const { data: ars = [], isLoading } = useQuery({
     queryKey: ["receivables", { project_id: projectId }],
     queryFn: () => receivablesApi.list({ project_id: projectId }).then((r) => r.data.items),
+  });
+  const sortedReceivables = sortTableRows(ars, tableSort.sortKey, tableSort.sortDirection, {
+    description: (receivable) => receivable.description,
+    amount: (receivable) => receivable.amount,
+    status: (receivable) => receivable.status,
+    date: (receivable) => receivable.created_at,
   });
 
   const total = ars.reduce((s, a) => s + a.amount, 0);
@@ -291,10 +310,10 @@ function RevenueTab({ projectId, currency }: { projectId: number; currency: stri
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Description</th>
-                <th className="th text-right">Amount</th>
-                <th className="th hidden sm:table-cell">Status</th>
-                <th className="th hidden lg:table-cell">Date</th>
+                <SortableTableHeader label="Description" column="description" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Amount" column="amount" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden sm:table-cell" />
+                <SortableTableHeader label="Date" column="date" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden lg:table-cell" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -304,7 +323,7 @@ function RevenueTab({ projectId, currency }: { projectId: number; currency: stri
                     No revenue entries for this project
                   </td>
                 </tr>
-              ) : ars.map((ar) => (
+              ) : sortedReceivables.map((ar) => (
                 <tr key={ar.id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="td">
                     <p className="text-sm font-medium text-gray-900 truncate max-w-[220px]">

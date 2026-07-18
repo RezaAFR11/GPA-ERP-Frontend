@@ -36,6 +36,11 @@ import type {
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
 
+export interface TableSortParams {
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
+}
+
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { "Content-Type": "application/json" },
@@ -86,7 +91,7 @@ export const authApi = {
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export const projectsApi = {
-  list:   (params?: { status?: string; archived?: boolean; include_archived?: boolean; search?: string; skip?: number; limit?: number }) =>
+  list:   (params?: { status?: string; archived?: boolean; include_archived?: boolean; search?: string; skip?: number; limit?: number } & TableSortParams) =>
     api.get<PaginatedResponse<Project>>("/projects", { params }),
   get:    (id: number)  => api.get<Project>(`/projects/${id}`),
   documents: (id: number) => api.get<ProjectDocument[]>(`/projects/${id}/documents`),
@@ -127,7 +132,7 @@ export const costCentresApi = {
 // ─── Receivables ──────────────────────────────────────────────────────────────
 
 export const receivablesApi = {
-  list:    (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string; skip?: number; limit?: number }) =>
+  list:    (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string; skip?: number; limit?: number } & TableSortParams) =>
     api.get<PaginatedResponse<AccountReceivable>>("/receivables", { params }),
   summary: (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string }) =>
     api.get<ReceivablesSummary>("/receivables/summary", { params }),
@@ -217,7 +222,7 @@ export const vaultApi = {
     api.patch<ApprovalRule>(`/vault/approval-rules/${id}`, data),
   deactivateRule:(id: number) =>
     api.delete<MessageResponse>(`/vault/approval-rules/${id}`),
-  auditLog: (params?: { entity_type?: string; entity_id?: number; changed_by?: number; skip?: number; limit?: number }) =>
+  auditLog: (params?: { entity_type?: string; entity_id?: number; changed_by?: number; skip?: number; limit?: number } & TableSortParams) =>
     api.get<PaginatedResponse<AuditLog>>("/vault/audit-log", { params }),
   auditEntityTypes: () => api.get<string[]>("/vault/audit-log/entity-types"),
 };
@@ -251,7 +256,7 @@ export const legalApi = {
 // ─── Inventory ───────────────────────────────────────────────────────────────
 
 export const inventoryApi = {
-  list:   (params?: { category?: string; low_stock?: boolean; is_active?: boolean; q?: string; skip?: number; limit?: number }) =>
+  list:   (params?: { category?: string; low_stock?: boolean; is_active?: boolean; q?: string; skip?: number; limit?: number } & TableSortParams) =>
     api.get<PaginatedResponse<InventoryItem>>("/inventory", { params }),
   summary: () => api.get<InventorySummary>("/inventory/summary"),
   get:    (id: number) => api.get<InventoryItem>(`/inventory/${id}`),
@@ -278,7 +283,7 @@ export const operationsApi = {
       search?: string;
       skip?: number;
       limit?: number;
-    },
+    } & TableSortParams,
   ) => api.get<PaginatedResponse<OperationalRecord>>(`/operations/${module}`, { params }),
   summary: (module: string) =>
     api.get<OperationalSummary>(`/operations/${module}/summary`),
@@ -372,7 +377,7 @@ export const hrisEmployeesApi = {
   list: (params?: {
     search?: string; dept_id?: number; tipe?: string; status?: string;
     skip?: number; limit?: number;
-  }) => api.get<PaginatedResponse<Employee>>("/hris/employees", { params }),
+  } & TableSortParams) => api.get<PaginatedResponse<Employee>>("/hris/employees", { params }),
   get:    (id: number) => api.get<Employee>(`/hris/employees/${id}`),
   create: (data: EmployeeCreate) => api.post<Employee>("/hris/employees", data),
   update: (id: number, data: Partial<EmployeeCreate>) =>

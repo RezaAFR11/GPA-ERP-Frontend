@@ -22,9 +22,12 @@ import { cn } from "@/lib/utils";
 import type { Project, ProjectStatus } from "@/lib/types";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { Pagination } from "@/components/ui/pagination";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { useRole } from "@/lib/auth-context";
+import { useTableSort } from "@/lib/table-sort";
 
 const STATUS_OPTS: ProjectStatus[] = ["active", "on_hold", "completed", "cancelled"];
+type ProjectSortKey = "code" | "name" | "status" | "contract_value" | "burn_rate" | "margin" | "end_date";
 const STATUS_LABEL: Record<ProjectStatus, string> = {
   active: "Active", on_hold: "On Hold", completed: "Completed", cancelled: "Cancelled",
 };
@@ -468,15 +471,18 @@ export default function ProjectsPage() {
   const [importOpen,  setImport] = useState(false);
   const [newOpen,     setNew]    = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const { sortKey, sortDirection, toggleSort } = useTableSort<ProjectSortKey>("code", "asc");
 
   const PAGE_SIZE = 18; // 3-col grid fits 18 nicely
 
   const { data: projectData, isLoading } = useQuery({
-    queryKey: ["projects", statusFilter, archiveFilter, search, page],
+    queryKey: ["projects", statusFilter, archiveFilter, search, sortKey, sortDirection, page],
     queryFn:  () => {
-      const params: Record<string, unknown> = {
+      const params: Parameters<typeof projectsApi.list>[0] = {
         skip: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
+        sort_by: sortKey,
+        sort_dir: sortDirection,
       };
       if (statusFilter) params.status = statusFilter;
       if (archiveFilter === "active") params.archived = false;
@@ -489,6 +495,11 @@ export default function ProjectsPage() {
   const projects  = projectData?.items ?? [];
   const totalPages = Math.ceil((projectData?.total ?? 0) / PAGE_SIZE);
   const paged      = projects;
+
+  function handleSort(column: ProjectSortKey) {
+    toggleSort(column);
+    setPage(1);
+  }
 
   const archiveMut = useMutation({
     mutationFn: (project: Project) => projectsApi.update(project.id, { is_archived: !project.is_archived }),
@@ -652,13 +663,13 @@ export default function ProjectsPage() {
             <div className="overflow-x-auto"><table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="th">Code</th>
-                  <th className="th">Project Name</th>
-                  <th className="th hidden md:table-cell">Status</th>
-                  <th className="th text-right hidden lg:table-cell">Contract Value</th>
-                  <th className="th hidden xl:table-cell">Burn Rate</th>
-                  <th className="th text-right hidden lg:table-cell">Margin</th>
-                  <th className="th text-right">End Date</th>
+                  <SortableTableHeader label="Code" column="code" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />
+                  <SortableTableHeader label="Project Name" column="name" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />
+                  <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="hidden md:table-cell" />
+                  <SortableTableHeader label="Contract Value" column="contract_value" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="hidden lg:table-cell" />
+                  <SortableTableHeader label="Burn Rate" column="burn_rate" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} className="hidden xl:table-cell" />
+                  <SortableTableHeader label="Margin" column="margin" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" className="hidden lg:table-cell" />
+                  <SortableTableHeader label="End Date" column="end_date" sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} align="right" />
                 </tr>
               </thead>
               <tbody>

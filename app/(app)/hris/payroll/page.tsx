@@ -10,11 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { hrisPayrollApi, hrisSalaryApi, hrisEmployeesApi } from "@/lib/api";
 import type { PayrollPeriod, PayrollRun, SalaryComponent } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/lib/auth-context";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type PayrollSortKey = "employee" | "gross" | "bpjs_tk" | "bpjs_kes" | "pph21" | "thr" | "net";
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
@@ -264,6 +268,7 @@ export default function PayrollPage() {
   const [slipRun,    setSlipRun]    = useState<PayrollRun | null>(null);
   const [showNew,    setShowNew]    = useState(false);
   const [showSalary, setShowSalary] = useState(false);
+  const tableSort = useTableSort<PayrollSortKey>("employee", "asc");
 
   /* Periods */
   const { data: periods = [], isLoading: perLoad } = useQuery({
@@ -276,6 +281,15 @@ export default function PayrollPage() {
     queryKey: ["hris", "payroll", "runs", selectedPeriod?.id],
     queryFn:  () => hrisPayrollApi.listRuns({ period_id: selectedPeriod!.id }).then(r => r.data),
     enabled:  !!selectedPeriod,
+  });
+  const sortedRuns = sortTableRows(runs, tableSort.sortKey, tableSort.sortDirection, {
+    employee: (run) => run.employee?.full_name,
+    gross: (run) => run.gross_salary,
+    bpjs_tk: (run) => run.bpjs_tk_employee,
+    bpjs_kes: (run) => run.bpjs_kes_employee,
+    pph21: (run) => run.pph21_amount,
+    thr: (run) => run.thr_amount,
+    net: (run) => run.net_salary,
   });
 
   /* Employees + components for salary modal */
@@ -527,11 +541,15 @@ export default function PayrollPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100">
-                        {["Karyawan","Gross","BPJS TK","BPJS Kes","PPh 21","THR","Net","Slip","1721-A1"].map(h => (
-                          <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
-                            {h}
-                          </th>
-                        ))}
+                        <SortableTableHeader label="Karyawan" column="employee" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="Gross" column="gross" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="BPJS TK" column="bpjs_tk" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="BPJS Kes" column="bpjs_kes" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="PPh 21" column="pph21" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="THR" column="thr" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <SortableTableHeader label="Net" column="net" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                        <th className="th">Slip</th>
+                        <th className="th">1721-A1</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -551,7 +569,7 @@ export default function PayrollPage() {
                                 </td>
                               </tr>
                             )
-                          : runs.map(r => (
+                          : sortedRuns.map(r => (
                               <tr key={r.id} className="hover:bg-gray-50/50">
                                 <td className="px-4 py-3">
                                   <p className="text-xs font-medium text-gray-900">{r.employee?.full_name ?? `#${r.employee_id}`}</p>

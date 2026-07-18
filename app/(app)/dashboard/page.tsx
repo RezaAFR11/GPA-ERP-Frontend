@@ -17,7 +17,12 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { KPISkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { ExpenseStatusBadge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
-import type { OperationalRecord, Project } from "@/lib/types";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+import type { Expense, OperationalRecord, Project } from "@/lib/types";
+
+type RecentExpenseSortKey = "id" | "description" | "cost_code" | "amount" | "status" | "approver";
+type ProjectHealthSortKey = "project" | "progress" | "committed" | "hse" | "status";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -283,6 +288,8 @@ export default function DashboardPage() {
   const { canAccessMenu } = useAuth();
   const [projectStatusPage, setProjectStatusPage] = useState(1);
   const [projectStatusPageSize, setProjectStatusPageSize] = useState(5);
+  const recentSort = useTableSort<RecentExpenseSortKey>("id", "desc");
+  const healthSort = useTableSort<ProjectHealthSortKey>("project", "asc");
   const reportingCurrency = getStoredCurrency();
   const reportingSymbol = getCurrencySymbol(reportingCurrency);
   const canReadProjectExecution = canAccessMenu("project_execution");
@@ -314,18 +321,46 @@ export default function DashboardPage() {
     queryKey: ["reports", "dashboard-trend", reportingCurrency],
     queryFn: () => reportsApi.dashboardTrend(reportingCurrency).then((r) => r.data),
   });
-  const recentExpenses = (recentExpenseData?.items ?? []).slice(0, 8);
+  const recentExpenses = sortTableRows<Expense, RecentExpenseSortKey>(
+    recentExpenseData?.items ?? [],
+    recentSort.sortKey,
+    recentSort.sortDirection,
+    {
+      id: (expense) => expense.id,
+      description: (expense) => expense.description,
+      cost_code: (expense) => expense.cost_code?.code,
+      amount: (expense) => expense.amount,
+      status: (expense) => expense.status,
+      approver: (expense) => expense.current_approver_role,
+    },
+  ).slice(0, 8);
   const now = new Date();
-  const projectHealth = projects.map((project) =>
-    buildProjectHealth(
-      project,
-      progressRecords,
-      hseRecords,
-      now,
-      canReadProjectExecution,
-      canReadHse,
+  const projectHealth = sortTableRows(
+    projects.map((project) =>
+      buildProjectHealth(
+        project,
+        progressRecords,
+        hseRecords,
+        now,
+        canReadProjectExecution,
+        canReadHse,
+      ),
     ),
+    healthSort.sortKey,
+    healthSort.sortDirection,
+    {
+      project: (metric) => metric.project.code,
+      progress: (metric) => metric.progress,
+      committed: (metric) => metric.project.total_committed,
+      hse: (metric) => metric.safeDays,
+      status: (metric) => metric.status,
+    },
   );
+
+  function sortProjectHealth(column: ProjectHealthSortKey) {
+    healthSort.toggleSort(column);
+    setProjectStatusPage(1);
+  }
   const projectStatusTotalPages = Math.max(1, Math.ceil(projectHealth.length / projectStatusPageSize));
   const currentProjectStatusPage = Math.min(projectStatusPage, projectStatusTotalPages);
   const visibleProjectHealth = projectHealth.slice(
@@ -551,12 +586,12 @@ export default function DashboardPage() {
           <div className="overflow-x-auto"><table className="w-full">
             <thead>
               <tr className="border-b border-gray-50">
-                <th className="th">ID</th>
-                <th className="th">Description</th>
-                <th className="th hidden md:table-cell">Cost Code</th>
-                <th className="th text-right">Amount</th>
-                <th className="th">Status</th>
-                <th className="th hidden lg:table-cell">Approver</th>
+                <SortableTableHeader label="ID" column="id" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} />
+                <SortableTableHeader label="Description" column="description" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} />
+                <SortableTableHeader label="Cost Code" column="cost_code" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="Amount" column="amount" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} align="right" />
+                <SortableTableHeader label="Status" column="status" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} />
+                <SortableTableHeader label="Approver" column="approver" sortKey={recentSort.sortKey} sortDirection={recentSort.sortDirection} onSort={recentSort.toggleSort} className="hidden lg:table-cell" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -626,11 +661,11 @@ export default function DashboardPage() {
               <table className="w-full min-w-[920px] table-fixed">
                 <thead>
                   <tr className="border-b border-gray-50">
-                    <th className="th w-[29%]">Project</th>
-                    <th className="th w-[19%]">Progress</th>
-                    <th className="th w-[24%]">Committed / Contract</th>
-                    <th className="th w-[12%] text-center">HSE</th>
-                    <th className="th w-[16%]">Status</th>
+                    <SortableTableHeader label="Project" column="project" sortKey={healthSort.sortKey} sortDirection={healthSort.sortDirection} onSort={sortProjectHealth} className="w-[29%]" />
+                    <SortableTableHeader label="Progress" column="progress" sortKey={healthSort.sortKey} sortDirection={healthSort.sortDirection} onSort={sortProjectHealth} className="w-[19%]" />
+                    <SortableTableHeader label="Committed / Contract" column="committed" sortKey={healthSort.sortKey} sortDirection={healthSort.sortDirection} onSort={sortProjectHealth} className="w-[24%]" />
+                    <SortableTableHeader label="HSE" column="hse" sortKey={healthSort.sortKey} sortDirection={healthSort.sortDirection} onSort={sortProjectHealth} align="center" className="w-[12%]" />
+                    <SortableTableHeader label="Status" column="status" sortKey={healthSort.sortKey} sortDirection={healthSort.sortDirection} onSort={sortProjectHealth} className="w-[16%]" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">

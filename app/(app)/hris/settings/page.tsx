@@ -14,14 +14,23 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { cn, fmtDate } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { useRole } from "@/lib/auth-context";
 import type { WorkLocation, LeaveType, SalaryComponent, Department, JobGrade, WorkGroup, HolidayCalendar } from "@/lib/types";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 
 type TabKey = "locations" | "leave-types" | "salary" | "departments" | "grades" | "work-groups" | "holidays";
+type LocationSortKey = "name" | "type" | "coordinates" | "timezone" | "radius" | "status";
+type LeaveTypeSortKey = "code" | "name" | "max_days" | "paid" | "approval" | "status";
+type SalaryComponentSortKey = "code" | "name" | "type" | "taxable" | "status";
+type DepartmentSortKey = "code" | "name" | "parent" | "status";
+type GradeSortKey = "code" | "name" | "level" | "status";
+type WorkGroupSortKey = "name" | "role" | "description" | "members" | "status";
+type HolidaySortKey = "date" | "name" | "type";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: "locations",    label: "Lokasi Kerja",     icon: MapPin         },
@@ -48,10 +57,19 @@ function WorkLocationsTab() {
     name: "", location_type: "home_office", latitude: "", longitude: "",
     radius_meters: "200", timezone_name: "Asia/Jakarta",
   });
+  const tableSort = useTableSort<LocationSortKey>("name", "asc");
 
   const { data: locations = [], isLoading } = useQuery({
     queryKey: ["hris", "work-locations"],
     queryFn: () => hrisWorkLocationApi.list(false).then((r) => r.data),
+  });
+  const sortedLocations = sortTableRows(locations, tableSort.sortKey, tableSort.sortDirection, {
+    name: (location) => location.name,
+    type: (location) => location.location_type,
+    coordinates: (location) => location.latitude,
+    timezone: (location) => location.timezone_name,
+    radius: (location) => location.radius_meters,
+    status: (location) => location.is_active,
   });
 
   const createMut = useMutation({
@@ -100,16 +118,16 @@ function WorkLocationsTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-left py-2 font-medium">Tipe</th>
-              <th className="text-left py-2 font-medium">Koordinat</th>
-              <th className="text-left py-2 font-medium">Zona Waktu</th>
-              <th className="text-right py-2 font-medium">Radius</th>
-              <th className="text-right py-2 font-medium">Status</th>
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Tipe" column="type" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Koordinat" column="coordinates" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Zona Waktu" column="timezone" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Radius" column="radius" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {locations.map((loc) => (
+            {sortedLocations.map((loc) => (
               <tr key={loc.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-medium text-gray-800">{loc.name}</td>
                 <td className="py-2.5">
@@ -219,10 +237,19 @@ function LeaveTypesTab() {
     code: "", name: "", max_days: "", is_paid: true, requires_approval: true,
     category: "annual" as LeaveType["category"], requires_doctor_cert: false,
   });
+  const tableSort = useTableSort<LeaveTypeSortKey>("code", "asc");
 
   const { data: types = [], isLoading } = useQuery({
     queryKey: ["hris", "leave-types"],
     queryFn: () => hrisLeaveApi.listTypes().then((r) => r.data),
+  });
+  const sortedTypes = sortTableRows(types, tableSort.sortKey, tableSort.sortDirection, {
+    code: (leaveType) => leaveType.code,
+    name: (leaveType) => leaveType.name,
+    max_days: (leaveType) => leaveType.max_days_per_year,
+    paid: (leaveType) => leaveType.is_paid,
+    approval: (leaveType) => leaveType.requires_approval,
+    status: (leaveType) => leaveType.is_active,
   });
 
   const createMut = useMutation({
@@ -262,16 +289,16 @@ function LeaveTypesTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Kode</th>
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-right py-2 font-medium">Maks Hari/Tahun</th>
-              <th className="text-center py-2 font-medium">Berbayar</th>
-              <th className="text-center py-2 font-medium">Perlu Persetujuan</th>
-              <th className="text-center py-2 font-medium">Status</th>
+              <SortableTableHeader label="Kode" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Maks Hari/Tahun" column="max_days" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="!px-0 !py-2" />
+              <SortableTableHeader label="Berbayar" column="paid" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
+              <SortableTableHeader label="Perlu Persetujuan" column="approval" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {types.map((t) => (
+            {sortedTypes.map((t) => (
               <tr key={t.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-mono text-xs text-gray-600">{t.code}</td>
                 <td className="py-2.5">
@@ -376,10 +403,18 @@ function SalaryComponentsTab({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ code: "", name: "", component_type: "ALLOWANCE", is_taxable: false });
+  const tableSort = useTableSort<SalaryComponentSortKey>("code", "asc");
 
   const { data: components = [], isLoading } = useQuery({
     queryKey: ["hris", "salary-components"],
     queryFn: () => hrisSalaryApi.listComponents().then((r) => r.data),
+  });
+  const sortedComponents = sortTableRows(components, tableSort.sortKey, tableSort.sortDirection, {
+    code: (component) => component.code,
+    name: (component) => component.name,
+    type: (component) => component.component_type,
+    taxable: (component) => component.is_taxable,
+    status: (component) => component.is_active,
   });
 
   const createMut = useMutation({
@@ -423,15 +458,15 @@ function SalaryComponentsTab({ canManage }: { canManage: boolean }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Kode</th>
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-left py-2 font-medium">Tipe</th>
-              <th className="text-center py-2 font-medium">Kena Pajak</th>
-              <th className="text-center py-2 font-medium">Status</th>
+              <SortableTableHeader label="Kode" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Tipe" column="type" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Kena Pajak" column="taxable" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {components.map((c) => (
+            {sortedComponents.map((c) => (
               <tr key={c.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-mono text-xs text-gray-600">{c.code}</td>
                 <td className="py-2.5 font-medium text-gray-800">{c.name}</td>
@@ -501,10 +536,18 @@ function DepartmentsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ code: "", name: "", parent_id: "" });
+  const tableSort = useTableSort<DepartmentSortKey>("code", "asc");
 
   const { data: depts = [], isLoading } = useQuery({
     queryKey: ["hris", "departments"],
     queryFn: () => hrisDepartmentsApi.list(false).then((r) => r.data),
+  });
+  const departmentById = new Map(depts.map((department) => [department.id, department]));
+  const sortedDepartments = sortTableRows(depts, tableSort.sortKey, tableSort.sortDirection, {
+    code: (department) => department.code,
+    name: (department) => department.name,
+    parent: (department) => department.parent_id ? departmentById.get(department.parent_id)?.name : null,
+    status: (department) => department.is_active,
   });
 
   const createMut = useMutation({
@@ -537,15 +580,15 @@ function DepartmentsTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Kode</th>
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-left py-2 font-medium">Induk</th>
-              <th className="text-center py-2 font-medium">Status</th>
+              <SortableTableHeader label="Kode" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Induk" column="parent" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {depts.map((d) => {
-              const parent = d.parent_id ? depts.find(p => p.id === d.parent_id) : null;
+            {sortedDepartments.map((d) => {
+              const parent = d.parent_id ? departmentById.get(d.parent_id) : null;
               return (
                 <tr key={d.id} className="hover:bg-gray-50">
                   <td className="py-2.5 font-mono text-xs text-gray-600">{d.code}</td>
@@ -605,10 +648,17 @@ function GradesTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ code: "", name: "", level: "1" });
+  const tableSort = useTableSort<GradeSortKey>("level", "asc");
 
   const { data: grades = [], isLoading } = useQuery({
     queryKey: ["hris", "job-grades"],
     queryFn: () => hrisJobGradesApi.list(false).then((r) => r.data),
+  });
+  const sortedGrades = sortTableRows(grades, tableSort.sortKey, tableSort.sortDirection, {
+    code: (grade) => grade.code,
+    name: (grade) => grade.name,
+    level: (grade) => grade.level,
+    status: (grade) => grade.is_active,
   });
 
   const createMut = useMutation({
@@ -641,14 +691,14 @@ function GradesTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Kode</th>
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-right py-2 font-medium">Level</th>
-              <th className="text-center py-2 font-medium">Status</th>
+              <SortableTableHeader label="Kode" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Level" column="level" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {grades.sort((a,b) => a.level - b.level).map((g) => (
+            {sortedGrades.map((g) => (
               <tr key={g.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-mono text-xs text-gray-600">{g.code}</td>
                 <td className="py-2.5 font-medium text-gray-800">{g.name}</td>
@@ -701,10 +751,18 @@ function WorkGroupsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", role: "WORKER", description: "" });
+  const tableSort = useTableSort<WorkGroupSortKey>("name", "asc");
 
   const { data: groups = [], isLoading } = useQuery({
     queryKey: ["hris", "work-groups"],
     queryFn: () => hrisWorkGroupsApi.list().then((r) => r.data),
+  });
+  const sortedGroups = sortTableRows(groups, tableSort.sortKey, tableSort.sortDirection, {
+    name: (group) => group.name,
+    role: (group) => group.role,
+    description: (group) => group.description,
+    members: (group) => group.members?.length ?? 0,
+    status: (group) => group.is_active,
   });
 
   const createMut = useMutation({
@@ -737,15 +795,15 @@ function WorkGroupsTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Nama Grup</th>
-              <th className="text-left py-2 font-medium">Role</th>
-              <th className="text-left py-2 font-medium">Deskripsi</th>
-              <th className="text-right py-2 font-medium">Anggota</th>
-              <th className="text-center py-2 font-medium">Status</th>
+              <SortableTableHeader label="Nama Grup" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Role" column="role" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Deskripsi" column="description" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Anggota" column="members" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="right" className="!px-0 !py-2" />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {groups.map((g) => (
+            {sortedGroups.map((g) => (
               <tr key={g.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-medium text-gray-800">{g.name}</td>
                 <td className="py-2.5">
@@ -807,10 +865,16 @@ function HolidayCalendarTab() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ date: "", name: "", is_national: true });
+  const tableSort = useTableSort<HolidaySortKey>("date", "asc");
 
   const { data: holidays = [], isLoading } = useQuery({
     queryKey: ["hris", "holiday-calendar", year],
     queryFn: () => hrisHolidayCalendarApi.list(year).then((r) => r.data),
+  });
+  const sortedHolidays = sortTableRows(holidays, tableSort.sortKey, tableSort.sortDirection, {
+    date: (holiday) => holiday.date,
+    name: (holiday) => holiday.name,
+    type: (holiday) => holiday.is_national,
   });
 
   const createMut = useMutation({
@@ -858,14 +922,14 @@ function HolidayCalendarTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-              <th className="text-left py-2 font-medium">Tanggal</th>
-              <th className="text-left py-2 font-medium">Nama</th>
-              <th className="text-center py-2 font-medium">Tipe</th>
+              <SortableTableHeader label="Tanggal" column="date" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Nama" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="!px-0 !py-2" />
+              <SortableTableHeader label="Tipe" column="type" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} align="center" className="!px-0 !py-2" />
               <th className="text-right py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {holidays.sort((a,b) => a.date.localeCompare(b.date)).map((h) => (
+            {sortedHolidays.map((h) => (
               <tr key={h.id} className="hover:bg-gray-50">
                 <td className="py-2.5 font-mono text-xs text-gray-700">{fmtDate(h.date)}</td>
                 <td className="py-2.5 font-medium text-gray-800">{h.name}</td>

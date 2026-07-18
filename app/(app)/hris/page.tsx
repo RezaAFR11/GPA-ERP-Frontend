@@ -12,9 +12,13 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { hrisDashboardApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { cn, fmtDate } from "@/lib/utils";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type ContractSortKey = "employee_no" | "name" | "end_date" | "days_left";
 
 const TIPE_COLORS_PIE = ["#0D9488", "#2563EB", "#EA580C"];
 
@@ -25,6 +29,18 @@ export default function HrisDashboardPage() {
     queryKey: ["hris", "dashboard", "stats", now.getFullYear(), now.getMonth() + 1],
     queryFn: () => hrisDashboardApi.getStats(now.getFullYear(), now.getMonth() + 1).then((r) => r.data),
   });
+  const contractSort = useTableSort<ContractSortKey>("days_left", "asc");
+  const expiringContracts = sortTableRows(
+    stats?.pkwt_expiring_list ?? [],
+    contractSort.sortKey,
+    contractSort.sortDirection,
+    {
+      employee_no: (employee) => employee.employee_no,
+      name: (employee) => employee.full_name,
+      end_date: (employee) => employee.end_date,
+      days_left: (employee) => employee.days_left,
+    },
+  );
 
   const tipeData  = [
     { name: "Tetap",     value: stats?.employment_type_counts.Tetap ?? 0     },
@@ -166,14 +182,14 @@ export default function HrisDashboardPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase">
-                  <th className="text-left px-5 py-2 font-medium">No. Karyawan</th>
-                  <th className="text-left px-5 py-2 font-medium">Nama</th>
-                  <th className="text-right px-5 py-2 font-medium">Tgl Berakhir</th>
-                  <th className="text-right px-5 py-2 font-medium">Sisa Hari</th>
+                  <SortableTableHeader label="No. Karyawan" column="employee_no" sortKey={contractSort.sortKey} sortDirection={contractSort.sortDirection} onSort={contractSort.toggleSort} className="!px-5 !py-2" />
+                  <SortableTableHeader label="Nama" column="name" sortKey={contractSort.sortKey} sortDirection={contractSort.sortDirection} onSort={contractSort.toggleSort} className="!px-5 !py-2" />
+                  <SortableTableHeader label="Tgl Berakhir" column="end_date" sortKey={contractSort.sortKey} sortDirection={contractSort.sortDirection} onSort={contractSort.toggleSort} align="right" className="!px-5 !py-2" />
+                  <SortableTableHeader label="Sisa Hari" column="days_left" sortKey={contractSort.sortKey} sortDirection={contractSort.sortDirection} onSort={contractSort.toggleSort} align="right" className="!px-5 !py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {(stats?.pkwt_expiring_list ?? []).map((emp) => (
+                {expiringContracts.map((emp) => (
                   <tr key={emp.id} className="hover:bg-gray-50">
                     <td className="px-5 py-2.5 font-mono text-xs text-gray-500">{emp.employee_no}</td>
                     <td className="px-5 py-2.5 font-medium text-gray-800">{emp.full_name}</td>

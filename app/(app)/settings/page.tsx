@@ -11,15 +11,18 @@ import { usersApi, legalApi, hrisEmployeesApi, settingsApi } from "@/lib/api";
 import { getBranding, setBranding, type Branding } from "@/lib/branding";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import {
   CURRENCIES, cn, ROLE_LABEL, getErrorMessage,
   getStoredCurrency, setStoredCurrency, type CurrencyCode,
 } from "@/lib/utils";
 import { fmtDate } from "@/lib/utils";
 import type { RoleName, User as UserType, UserCreate } from "@/lib/types";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 
 const TABS = ["Profile", "Security", "Users", "Email"] as const;
 type Tab = typeof TABS[number];
+type UserSortKey = "name" | "email" | "role" | "joined" | "status";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ msg, ok }: { msg: string; ok: boolean }) {
@@ -475,6 +478,7 @@ function UsersTab() {
   const [newUser,    setNewUser]  = useState<UserCreate>({
     email: "", password: "", full_name: "", role_id: 0,
   });
+  const userSort = useTableSort<UserSortKey>("name", "asc");
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -484,6 +488,13 @@ function UsersTab() {
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["users"],
     queryFn:  () => usersApi.list().then((r) => r.data),
+  });
+  const sortedUsers = sortTableRows(users, userSort.sortKey, userSort.sortDirection, {
+    name: (user) => user.full_name,
+    email: (user) => user.email,
+    role: (user) => user.role?.name,
+    joined: (user) => user.created_at,
+    status: (user) => user.is_active,
   });
 
   const { data: roles = [] } = useQuery({
@@ -675,11 +686,11 @@ function UsersTab() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="th">Name</th>
-              <th className="th hidden sm:table-cell">Email</th>
-              <th className="th hidden md:table-cell">Role</th>
-              <th className="th hidden lg:table-cell">Joined</th>
-              <th className="th">Status</th>
+              <SortableTableHeader label="Name" column="name" sortKey={userSort.sortKey} sortDirection={userSort.sortDirection} onSort={userSort.toggleSort} />
+              <SortableTableHeader label="Email" column="email" sortKey={userSort.sortKey} sortDirection={userSort.sortDirection} onSort={userSort.toggleSort} className="hidden sm:table-cell" />
+              <SortableTableHeader label="Role" column="role" sortKey={userSort.sortKey} sortDirection={userSort.sortDirection} onSort={userSort.toggleSort} className="hidden md:table-cell" />
+              <SortableTableHeader label="Joined" column="joined" sortKey={userSort.sortKey} sortDirection={userSort.sortDirection} onSort={userSort.toggleSort} className="hidden lg:table-cell" />
+              <SortableTableHeader label="Status" column="status" sortKey={userSort.sortKey} sortDirection={userSort.sortDirection} onSort={userSort.toggleSort} />
               <th className="th" />
             </tr>
           </thead>
@@ -694,7 +705,7 @@ function UsersTab() {
                     ))}
                   </tr>
                 ))
-              : users.map((u) => (
+              : sortedUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="td">
                       <div className="flex items-center gap-2.5">

@@ -13,9 +13,11 @@ import { ConfirmActionModal } from "@/components/ui/confirm-action-modal";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Pagination } from "@/components/ui/pagination";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
 import { ProtectedRoute } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import type {
   ApprovalRule, ApprovalRuleCreate, CostCentre, CostCentreCreate,
   CostCode, CostCodeCreate, CostCodeCategory, RoleName,
@@ -23,6 +25,10 @@ import type {
 
 const TABS = ["Approval Matrix", "Cost Codes", "Cost Centres", "Audit Log"] as const;
 type VaultTab = typeof TABS[number];
+type RuleSortKey = "priority" | "amount" | "category" | "role" | "status";
+type CostCodeSortKey = "code" | "name" | "category" | "parent" | "active";
+type CostCentreSortKey = "code" | "name" | "description" | "status";
+type AuditSortKey = "created_at" | "entity" | "action" | "user" | "ip_address";
 
 const COST_CODE_CATS: CostCodeCategory[] = ["Direct", "Site", "Personnel", "Overhead", "Other"];
 const ROLES: RoleName[] = ["SUPER_ADMIN", "MD", "PM", "COST_CONTROL", "FINANCE", "GA", "STAFF"];
@@ -44,10 +50,18 @@ function ApprovalMatrixTab() {
   const [form, setForm] = useState<ApprovalRuleCreate>({
     min_amount: 0, required_role: "PM", priority: 10,
   });
+  const tableSort = useTableSort<RuleSortKey>("priority", "asc");
 
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ["approval-rules"],
     queryFn: () => vaultApi.listRules().then((r) => r.data),
+  });
+  const sortedRules = sortTableRows(rules, tableSort.sortKey, tableSort.sortDirection, {
+    priority: (rule) => rule.priority,
+    amount: (rule) => rule.min_amount,
+    category: (rule) => rule.cost_code_category,
+    role: (rule) => rule.required_role,
+    status: (rule) => rule.is_active,
   });
 
   const invalidRange =
@@ -193,11 +207,11 @@ function ApprovalMatrixTab() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Priority</th>
-                <th className="th">Amount Range</th>
-                <th className="th hidden md:table-cell">Category</th>
-                <th className="th">Required Role</th>
-                <th className="th">Status</th>
+                <SortableTableHeader label="Priority" column="priority" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Amount Range" column="amount" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Category" column="category" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="Required Role" column="role" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
                 <th className="th" />
               </tr>
             </thead>
@@ -208,7 +222,7 @@ function ApprovalMatrixTab() {
                     No rules defined yet — click Add Rule to create one
                   </td>
                 </tr>
-              ) : rules.map((rule) => (
+              ) : sortedRules.map((rule) => (
                 <tr key={rule.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="td">
                     <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
@@ -277,10 +291,18 @@ function CostCodesTab() {
   const [showForm, setShowForm] = useState(false);
   const [deactivating, setDeactivating] = useState<CostCode | null>(null);
   const [form, setForm] = useState<CostCodeCreate>({ code: "", name: "", category: "Direct" });
+  const tableSort = useTableSort<CostCodeSortKey>("code", "asc");
 
   const { data: codes = [], isLoading } = useQuery({
     queryKey: ["cost-codes"],
     queryFn: () => costCodesApi.list(false).then((r) => r.data),
+  });
+  const sortedCodes = sortTableRows(codes, tableSort.sortKey, tableSort.sortDirection, {
+    code: (costCode) => costCode.code,
+    name: (costCode) => costCode.name,
+    category: (costCode) => costCode.category,
+    parent: (costCode) => costCode.parent_id,
+    active: (costCode) => costCode.is_active,
   });
 
   const create = useMutation({
@@ -373,11 +395,11 @@ function CostCodesTab() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Code</th>
-                <th className="th">Name</th>
-                <th className="th hidden md:table-cell">Category</th>
-                <th className="th hidden lg:table-cell">Parent</th>
-                <th className="th">Active</th>
+                <SortableTableHeader label="Code" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Name" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Category" column="category" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="Parent" column="parent" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden lg:table-cell" />
+                <SortableTableHeader label="Active" column="active" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
                 <th className="th" />
               </tr>
             </thead>
@@ -388,7 +410,7 @@ function CostCodesTab() {
                     No cost codes yet — click Add Code to create one
                   </td>
                 </tr>
-              ) : codes.map((cc) => (
+              ) : sortedCodes.map((cc) => (
                 <tr key={cc.id} className={cn("hover:bg-gray-50/50 transition-colors", !cc.is_active && "opacity-50")}>
                   <td className="td num text-xs font-semibold text-gray-500">{cc.code}</td>
                   <td className="td">
@@ -438,10 +460,17 @@ function CostCentresTab() {
   const [editing, setEditing] = useState<CostCentre | null>(null);
   const [deactivating, setDeactivating] = useState<CostCentre | null>(null);
   const [form, setForm] = useState<CostCentreCreate>({ code: "", name: "", description: "" });
+  const tableSort = useTableSort<CostCentreSortKey>("code", "asc");
 
   const { data: centres = [], isLoading } = useQuery({
     queryKey: ["cost-centres", "all"],
     queryFn: () => costCentresApi.list(false).then((r) => r.data),
+  });
+  const sortedCentres = sortTableRows(centres, tableSort.sortKey, tableSort.sortDirection, {
+    code: (centre) => centre.code,
+    name: (centre) => centre.name,
+    description: (centre) => centre.description,
+    status: (centre) => centre.is_active,
   });
 
   const save = useMutation({
@@ -565,17 +594,17 @@ function CostCentresTab() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Code</th>
-                <th className="th">Name</th>
-                <th className="th hidden md:table-cell">Description</th>
-                <th className="th">Status</th>
+                <SortableTableHeader label="Code" column="code" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Name" column="name" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
+                <SortableTableHeader label="Description" column="description" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={tableSort.toggleSort} />
                 <th className="th" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {centres.length === 0 ? (
                 <tr><td colSpan={5} className="td text-center text-gray-400 py-8 text-xs">No cost centres defined</td></tr>
-              ) : centres.map((centre) => (
+              ) : sortedCentres.map((centre) => (
                 <tr key={centre.id} className={cn("hover:bg-gray-50/50 transition-colors", !centre.is_active && "opacity-50")}>
                   <td className="td num text-xs font-semibold text-gray-500">{centre.code}</td>
                   <td className="td text-sm font-medium text-gray-900">{centre.name}</td>
@@ -629,11 +658,20 @@ function AuditLogTab() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const tableSort = useTableSort<AuditSortKey>("created_at", "desc");
+
+  function handleSort(column: AuditSortKey) {
+    tableSort.toggleSort(column);
+    setPage(1);
+    setExpandedId(null);
+  }
 
   const { data: auditData, isLoading } = useQuery({
-    queryKey: ["audit-log", entityFilter, page],
+    queryKey: ["audit-log", entityFilter, tableSort.sortKey, tableSort.sortDirection, page],
     queryFn: () => vaultApi.auditLog({
       ...(entityFilter ? { entity_type: entityFilter } : {}),
+      sort_by: tableSort.sortKey,
+      sort_dir: tableSort.sortDirection,
       skip: (page - 1) * AUDIT_PAGE_SIZE,
       limit: AUDIT_PAGE_SIZE,
     }).then((r) => r.data),
@@ -701,11 +739,11 @@ function AuditLogTab() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th">Timestamp</th>
-                <th className="th">Entity</th>
-                <th className="th">Action</th>
-                <th className="th hidden md:table-cell">User</th>
-                <th className="th hidden lg:table-cell">IP</th>
+                <SortableTableHeader label="Timestamp" column="created_at" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+                <SortableTableHeader label="Entity" column="entity" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+                <SortableTableHeader label="Action" column="action" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+                <SortableTableHeader label="User" column="user" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden md:table-cell" />
+                <SortableTableHeader label="IP" column="ip_address" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden lg:table-cell" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">

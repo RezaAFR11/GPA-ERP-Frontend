@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown, ChevronRight, CircleHelp, LogOut, Mail, Menu,
-  Plus, Search, Settings, UserRound,
+  Search, Settings, UserRound,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -51,13 +51,12 @@ const SEARCHABLE_MENUS = [
 ];
 
 interface TopbarProps {
-  onNewExpense?: () => void;
   onSearchOpen?: () => void;
   onMenuOpen?: () => void;
 }
 
 
-export function Topbar({ onNewExpense, onSearchOpen, onMenuOpen }: TopbarProps) {
+export function Topbar({ onSearchOpen, onMenuOpen }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, canAccessMenu } = useAuth();
@@ -143,16 +142,6 @@ export function Topbar({ onNewExpense, onSearchOpen, onMenuOpen }: TopbarProps) 
         <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
           {canSearch && (
             <button onClick={onSearchOpen} className="sm:hidden topbar-icon" aria-label="Search"><Search size={18} /></button>
-          )}
-
-          {pathname.startsWith("/spending") && canAccessMenu("spending") && (
-            <button
-              onClick={onNewExpense}
-              className="hidden xl:flex items-center gap-1.5 bg-[#06294A] hover:bg-[#021B33] text-white text-[12px] font-semibold px-[14px] py-[7px] rounded-[8px] transition-colors mr-1"
-            >
-              <Plus size={13} />
-              New Expense
-            </button>
           )}
 
           {canAccessMenu("action_center") && (

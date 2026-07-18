@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import NewExpenseModal from "@/components/spending/new-expense-modal";
 import { CommandPalette } from "@/components/command-palette";
 import { ForcePasswordChange } from "@/components/auth/force-password-change";
 import Link from "next/link";
@@ -96,7 +95,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     .some((key) => canAccessMenu(key));
 
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
-  const [expenseOpen,  setExpenseOpen]  = useState(false);
   const [paletteOpen,  setPaletteOpen]  = useState(false);
 
   // Close sidebar on route change
@@ -161,7 +159,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main column — no left margin on mobile, 250px on sm+ */}
       <div className="sm:ml-[250px]">
         <Topbar
-          onNewExpense={() => setExpenseOpen(true)}
           onSearchOpen={() => setPaletteOpen(true)}
           onMenuOpen={()  => setSidebarOpen(true)}
         />
@@ -191,7 +188,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile FAB — only for full ERP users who have spending access (not self-service) */}
       {!isSelfService && <MobileFAB canAccess={canAccessMenu("spending")} />}
 
-      <NewExpenseModal open={expenseOpen} onClose={() => setExpenseOpen(false)} />
       {canSearch && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
       <ForcePasswordChange />
     </div>

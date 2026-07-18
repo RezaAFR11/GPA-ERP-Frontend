@@ -11,13 +11,16 @@ import { formatCurrency, formatCompact, pct, getCurrencySymbol, getStoredCurrenc
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { cn } from "@/lib/utils";
 import { toastError } from "@/lib/hooks/use-toast";
 import { useAuth, useRole } from "@/lib/auth-context";
 import type { Expense, Project } from "@/lib/types";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
 
 const TABS = ["Overview", "Spending", "Margin", "Unduh Laporan"] as const;
 type Tab = typeof TABS[number];
+type MarginSortKey = "project" | "contract" | "revenue" | "committed" | "margin" | "health";
 
 const PIE_COLORS = [
   "#1E40AF", "#F59E0B", "#16A34A", "#DC2626",
@@ -406,6 +409,7 @@ function DownloadTab() {
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("Overview");
   const [excelLoading, setExcelLoading] = useState<boolean>(false);
+  const marginSort = useTableSort<MarginSortKey>("project", "asc");
   const reportingCurrency = getStoredCurrency();
   const reportingSymbol = getCurrencySymbol(reportingCurrency);
 
@@ -421,6 +425,18 @@ export default function ReportsPage() {
   const projects = allProjects.filter(
     (project) => (project.currency || "IDR") === reportingCurrency
   );
+  const sortedMarginProjects = sortTableRows(projects, marginSort.sortKey, marginSort.sortDirection, {
+    project: (project) => project.code,
+    contract: (project) => project.contract_value,
+    revenue: (project) => project.total_revenue,
+    committed: (project) => project.total_committed,
+    margin: (project) => project.total_revenue > 0
+      ? pct(project.total_revenue - project.total_committed, project.total_revenue)
+      : 0,
+    health: (project) => project.total_revenue > 0
+      ? pct(project.total_revenue - project.total_committed, project.total_revenue)
+      : 0,
+  });
   const reportingProjectIds = new Set(projects.map((project) => project.id));
   const expenses = allExpenses.filter(
     (expense) => expense.project_id != null && reportingProjectIds.has(expense.project_id)
@@ -637,16 +653,16 @@ export default function ReportsPage() {
           <table className="w-full table-fixed">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="th w-[28%]">Project</th>
-                <th className="th !text-right">Contract</th>
-                <th className="th !text-right hidden md:table-cell">Revenue</th>
-                <th className="th !text-right hidden md:table-cell">Committed</th>
-                <th className="th !text-right">Margin</th>
-                <th className="th">Health</th>
+                <SortableTableHeader label="Project" column="project" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} className="w-[28%]" />
+                <SortableTableHeader label="Contract" column="contract" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} align="right" />
+                <SortableTableHeader label="Revenue" column="revenue" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} align="right" className="hidden md:table-cell" />
+                <SortableTableHeader label="Committed" column="committed" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} align="right" className="hidden md:table-cell" />
+                <SortableTableHeader label="Margin" column="margin" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} align="right" />
+                <SortableTableHeader label="Health" column="health" sortKey={marginSort.sortKey} sortDirection={marginSort.sortDirection} onSort={marginSort.toggleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {projects.map((p) => {
+              {sortedMarginProjects.map((p) => {
                 const m = p.total_revenue > 0
                   ? pct(p.total_revenue - p.total_committed, p.total_revenue)
                   : 0;

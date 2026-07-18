@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
+import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { cn, fmtDate, ROLE_LABEL } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import type {
@@ -20,6 +21,10 @@ import type {
 } from "@/lib/types";
 import EmployeeDetailModal from "./components/employee-detail-modal";
 import { useRole } from "@/lib/auth-context";
+import { sortTableRows, useTableSort } from "@/lib/table-sort";
+
+type EmployeeSortKey = "employee" | "department" | "grade" | "employment_type" | "status" | "joined_at" | "account";
+type WorkGroupSortKey = "group" | "role" | "members" | "status";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -455,10 +460,17 @@ function WorkGroupsPanel() {
   const [newForm, setNewForm] = useState<Partial<WorkGroupCreate>>({ role: "STAFF" });
   const [saving, setSaving]  = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const workGroupSort = useTableSort<WorkGroupSortKey>("group", "asc");
 
   const { data: groups = [], isLoading } = useQuery<WorkGroup[]>({
     queryKey: ["hris", "work-groups"],
     queryFn: () => hrisWorkGroupsApi.list().then(r => r.data),
+  });
+  const sortedGroups = sortTableRows(groups, workGroupSort.sortKey, workGroupSort.sortDirection, {
+    group: (group) => group.name,
+    role: (group) => group.role,
+    members: (group) => group.members.length,
+    status: (group) => group.is_active,
   });
 
   async function handleCreate(e: React.FormEvent) {
@@ -547,13 +559,15 @@ function WorkGroupsPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {["Grup", "Role", "Anggota", "Status", ""].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
-                ))}
+                <SortableTableHeader label="Grup" column="group" sortKey={workGroupSort.sortKey} sortDirection={workGroupSort.sortDirection} onSort={workGroupSort.toggleSort} className="px-4" />
+                <SortableTableHeader label="Role" column="role" sortKey={workGroupSort.sortKey} sortDirection={workGroupSort.sortDirection} onSort={workGroupSort.toggleSort} className="px-4" />
+                <SortableTableHeader label="Anggota" column="members" sortKey={workGroupSort.sortKey} sortDirection={workGroupSort.sortDirection} onSort={workGroupSort.toggleSort} className="px-4" />
+                <SortableTableHeader label="Status" column="status" sortKey={workGroupSort.sortKey} sortDirection={workGroupSort.sortDirection} onSort={workGroupSort.toggleSort} className="px-4" />
+                <th className="px-4 py-3" aria-label="Aksi" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {groups.map(wg => (
+              {sortedGroups.map(wg => (
                 <React.Fragment key={wg.id}>
                   <tr className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-4 py-3">
@@ -747,6 +761,12 @@ export default function EmployeesPage() {
   const [selected, setSelected] = useState<Employee | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [activeTab, setActiveTab] = useState<"employees" | "groups" | "orgchart">("employees");
+  const tableSort = useTableSort<EmployeeSortKey>("employee", "asc");
+
+  function handleSort(column: EmployeeSortKey) {
+    tableSort.toggleSort(column);
+    setPage(0);
+  }
 
   // Multi-select state
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
@@ -755,12 +775,14 @@ export default function EmployeesPage() {
   const LIMIT = 30;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["hris", "employees", { search, filterTipe, filterStatus, filterDept, page }],
+    queryKey: ["hris", "employees", { search, filterTipe, filterStatus, filterDept, sortKey: tableSort.sortKey, sortDirection: tableSort.sortDirection, page }],
     queryFn: () => hrisEmployeesApi.list({
       search:  search || undefined,
       tipe:    filterTipe || undefined,
       status:  filterStatus || undefined,
       dept_id: filterDept,
+      sort_by: tableSort.sortKey,
+      sort_dir: tableSort.sortDirection,
       skip:    page * LIMIT,
       limit:   LIMIT,
     }).then((r) => r.data),
@@ -970,13 +992,13 @@ export default function EmployeesPage() {
                   className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                 />
               </th>}
-              <th className="th text-left">Karyawan</th>
-              <th className="th text-left hidden md:table-cell">Departemen</th>
-              <th className="th text-left hidden lg:table-cell">Grade</th>
-              <th className="th">Tipe</th>
-              <th className="th">Status</th>
-              <th className="th hidden md:table-cell">Bergabung</th>
-              <th className="th hidden sm:table-cell">Akun</th>
+              <SortableTableHeader label="Karyawan" column="employee" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+              <SortableTableHeader label="Departemen" column="department" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden md:table-cell" />
+              <SortableTableHeader label="Grade" column="grade" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden lg:table-cell" />
+              <SortableTableHeader label="Tipe" column="employment_type" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+              <SortableTableHeader label="Status" column="status" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} />
+              <SortableTableHeader label="Bergabung" column="joined_at" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden md:table-cell" />
+              <SortableTableHeader label="Akun" column="account" sortKey={tableSort.sortKey} sortDirection={tableSort.sortDirection} onSort={handleSort} className="hidden sm:table-cell" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
