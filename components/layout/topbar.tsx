@@ -13,6 +13,7 @@ import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
 import { NotificationBell } from "@/components/ui/notification-bell";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { hasSearchAccess } from "@/lib/menu-access";
 
 
 const PAGE_CRUMBS: Record<string, { label: string; parent?: string }> = {
@@ -43,13 +44,6 @@ const PAGE_CRUMBS: Record<string, { label: string; parent?: string }> = {
   "/hris": { label: "HRIS" },
 };
 
-const SEARCHABLE_MENUS = [
-  "project_command", "spending", "action_center", "revenue_ar", "legal", "inventory",
-  "procurement", "accounts_payable", "accounting_tax", "project_execution",
-  "engineering_documents", "quality_control", "hse", "warehouse_logistics",
-  "equipment_assets", "contract_management", "crm_tender", "manpower_operations", "budget_bi",
-];
-
 interface TopbarProps {
   onSearchOpen?: () => void;
   onMenuOpen?: () => void;
@@ -63,7 +57,7 @@ export function Topbar({ onSearchOpen, onMenuOpen }: TopbarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-  const canSearch = SEARCHABLE_MENUS.some(key => canAccessMenu(key));
+  const canSearch = hasSearchAccess(canAccessMenu);
   const actionCount = useActionCenterCount(canAccessMenu("action_center"));
 
   // Longest prefix wins so /hris/manpower is not labelled as the HRIS root.

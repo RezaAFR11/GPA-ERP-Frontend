@@ -1,7 +1,7 @@
 "use client";
 
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
 import { authApi } from "./api";
 import type { AppMenuPermission, RoleName, User } from "./types";
@@ -86,22 +86,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loadUser();
   }, [loadUser]);
 
+  const allowedMenuKeySet = useMemo(
+    () => new Set(state.allowedMenuKeys),
+    [state.allowedMenuKeys],
+  );
+
   const canAccessMenu = useCallback((key: string) => {
     if (state.user?.role.name === "SUPER_ADMIN") return true;
-    return state.allowedMenuKeys.includes(key);
-  }, [state.allowedMenuKeys, state.user]);
+    return allowedMenuKeySet.has(key);
+  }, [allowedMenuKeySet, state.user]);
 
   const firstAllowedPath = useCallback(() => {
     const isSelfServiceRole = state.user?.role.name === "WORKER" || state.user?.role.name === "STAFF";
     const hasSelfServiceMenu = ["hris_attendance", "hris_leave", "hris_my_payslip"]
-      .some(key => state.allowedMenuKeys.includes(key));
+      .some((key) => allowedMenuKeySet.has(key));
     if (isSelfServiceRole && hasSelfServiceMenu) return "/hris/me";
     // Everyone else: land on the launchpad
     return "/home";
-  }, [state.allowedMenuKeys, state.user]);
+  }, [allowedMenuKeySet, state.user]);
+
+  const contextValue = useMemo<AuthContextValue>(() => ({
+    ...state,
+    login,
+    logout,
+    refreshUser,
+    canAccessMenu,
+    firstAllowedPath,
+  }), [canAccessMenu, firstAllowedPath, login, logout, refreshUser, state]);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, refreshUser, canAccessMenu, firstAllowedPath }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

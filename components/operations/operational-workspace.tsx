@@ -3,15 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import {
-  AlertTriangle, CalendarClock, Check, CheckCircle2, Clock3, Eye,
-  History, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Search,
-  Send, Trash2, XCircle,
-} from "lucide-react";
+import { Clock3, History, Plus, Search } from "lucide-react";
 import { operationsApi, projectsApi } from "@/lib/api";
 import type {
-  OperationalModule, OperationalPriority, OperationalRecord,
-  OperationalRecordInput, OperationalStatus,
+  OperationalPriority, OperationalRecord, OperationalRecordInput,
 } from "@/lib/types";
 import { getErrorMessage } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -21,10 +16,31 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { useTableSort } from "@/lib/table-sort";
+import {
+  ACTION_META,
+  DETAIL_FIELDS,
+  PRESENTATION,
+  PRIORITY_STYLE,
+  STATUS_LABEL,
+  STATUS_STYLE,
+  type FormState,
+} from "./operational-workspace-config";
+import {
+  emptyForm,
+  formatDate,
+  formatMoney,
+  formFromRecord,
+  toPayload,
+} from "./operational-workspace-helpers";
+import {
+  DetailValue,
+  FilterSelect,
+  RowActionMenu,
+  SummaryTile,
+} from "./operational-workspace-parts";
 
 
 interface OperationalWorkspaceProps {
@@ -33,336 +49,6 @@ interface OperationalWorkspaceProps {
 
 type OperationalSortKey = "id" | "reference_no" | "record_type" | "title" | "project_partner" | "amount" | "progress" | "due_date" | "status";
 
-interface ModulePresentation {
-  singular: string;
-  partnerLabel: string;
-  amountLabel: string;
-}
-
-interface DetailField {
-  key: string;
-  label: string;
-  type?: "text" | "number" | "date";
-}
-
-interface FormState {
-  record_type: string;
-  reference_no: string;
-  title: string;
-  description: string;
-  priority: OperationalPriority;
-  project_id: string;
-  partner_name: string;
-  amount: string;
-  currency: string;
-  progress: string;
-  due_date: string;
-  owner_id: string;
-  details: Record<string, string>;
-}
-
-
-const PRESENTATION: Record<string, ModulePresentation> = {
-  procurement: { singular: "Procurement Record", partnerLabel: "Vendor", amountLabel: "Procurement Value" },
-  accounts_payable: { singular: "Payable Record", partnerLabel: "Vendor", amountLabel: "Invoice Amount" },
-  accounting_tax: { singular: "Accounting Record", partnerLabel: "Counterparty", amountLabel: "Transaction Value" },
-  project_execution: { singular: "Execution Record", partnerLabel: "Contractor / Client", amountLabel: "Planned Value" },
-  engineering_documents: { singular: "Engineering Document", partnerLabel: "Originator", amountLabel: "Document Value" },
-  quality_control: { singular: "Quality Record", partnerLabel: "Inspector / Contractor", amountLabel: "Impact Value" },
-  hse: { singular: "HSE Record", partnerLabel: "Responsible Party", amountLabel: "Impact Value" },
-  warehouse_logistics: { singular: "Logistics Record", partnerLabel: "Carrier / Vendor", amountLabel: "Movement Value" },
-  equipment_assets: { singular: "Asset Record", partnerLabel: "Supplier / Custodian", amountLabel: "Asset Value" },
-  contract_management: { singular: "Contract Record", partnerLabel: "Contract Party", amountLabel: "Contract Value" },
-  crm_tender: { singular: "Commercial Record", partnerLabel: "Customer", amountLabel: "Opportunity Value" },
-  manpower_operations: { singular: "Manpower Record", partnerLabel: "Employee / Agency", amountLabel: "Assignment Cost" },
-  budget_bi: { singular: "Planning Record", partnerLabel: "Business Unit", amountLabel: "Budget / Forecast" },
-};
-
-const DETAIL_FIELDS: Record<string, DetailField[]> = {
-  procurement: [
-    { key: "source_reference", label: "Source PR / RFQ / PO" },
-    { key: "quantity", label: "Quantity", type: "number" },
-    { key: "delivery_date", label: "Delivery Date", type: "date" },
-  ],
-  accounts_payable: [
-    { key: "po_reference", label: "PO Reference" },
-    { key: "grn_reference", label: "Goods Receipt Reference" },
-    { key: "invoice_date", label: "Invoice Date", type: "date" },
-  ],
-  accounting_tax: [
-    { key: "account_code", label: "Account / Tax Code" },
-    { key: "debit_total", label: "Debit Total", type: "number" },
-    { key: "credit_total", label: "Credit Total", type: "number" },
-  ],
-  project_execution: [
-    { key: "baseline_date", label: "Baseline Date", type: "date" },
-    { key: "actual_date", label: "Actual Date", type: "date" },
-    { key: "wbs_code", label: "WBS Code" },
-  ],
-  engineering_documents: [
-    { key: "document_number", label: "Document Number" },
-    { key: "revision", label: "Revision" },
-    { key: "discipline", label: "Discipline" },
-  ],
-  quality_control: [
-    { key: "inspection_date", label: "Inspection Date", type: "date" },
-    { key: "location", label: "Inspection Location" },
-    { key: "finding_count", label: "Finding Count", type: "number" },
-  ],
-  hse: [
-    { key: "event_date", label: "Event / Inspection Date", type: "date" },
-    { key: "location", label: "Location" },
-    { key: "lost_time_days", label: "Lost Time Days", type: "number" },
-  ],
-  warehouse_logistics: [
-    { key: "source_location", label: "Source Location" },
-    { key: "destination_location", label: "Destination Location" },
-    { key: "quantity", label: "Quantity", type: "number" },
-  ],
-  equipment_assets: [
-    { key: "asset_tag", label: "Asset Tag" },
-    { key: "serial_number", label: "Serial Number" },
-    { key: "next_service_date", label: "Next Service / Calibration", type: "date" },
-  ],
-  contract_management: [
-    { key: "effective_date", label: "Effective Date", type: "date" },
-    { key: "expiry_date", label: "Expiry Date", type: "date" },
-    { key: "retention_percent", label: "Retention %", type: "number" },
-  ],
-  crm_tender: [
-    { key: "probability", label: "Probability %", type: "number" },
-    { key: "submission_date", label: "Submission Date", type: "date" },
-    { key: "expected_award_date", label: "Expected Award Date", type: "date" },
-  ],
-  manpower_operations: [
-    { key: "employee_no", label: "Employee Number" },
-    { key: "mobilisation_date", label: "Mobilisation Date", type: "date" },
-    { key: "certificate_expiry", label: "Certificate / Medical Expiry", type: "date" },
-  ],
-  budget_bi: [
-    { key: "fiscal_year", label: "Fiscal Year", type: "number" },
-    { key: "forecast_amount", label: "Forecast Amount", type: "number" },
-    { key: "scenario", label: "Scenario" },
-  ],
-};
-
-const STATUS_LABEL: Record<OperationalStatus, string> = {
-  draft: "Draft",
-  submitted: "Submitted",
-  in_review: "In Review",
-  approved: "Approved",
-  active: "Active",
-  rejected: "Rejected",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  closed: "Closed",
-};
-
-const STATUS_STYLE: Record<OperationalStatus, string> = {
-  draft: "bg-slate-50 text-slate-600 border-slate-200",
-  submitted: "bg-blue-50 text-blue-700 border-blue-200",
-  in_review: "bg-cyan-50 text-cyan-700 border-cyan-200",
-  approved: "bg-green-50 text-green-700 border-green-200",
-  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  rejected: "bg-red-50 text-red-700 border-red-200",
-  completed: "bg-teal-50 text-teal-700 border-teal-200",
-  cancelled: "bg-gray-100 text-gray-600 border-gray-200",
-  closed: "bg-slate-900 text-white border-slate-900",
-};
-
-const PRIORITY_STYLE: Record<OperationalPriority, string> = {
-  low: "text-slate-500",
-  normal: "text-[#33445A]",
-  high: "text-amber-700",
-  critical: "text-red-600",
-};
-
-const WORKFLOW_ACTIONS: Record<OperationalStatus, string[]> = {
-  draft: ["submit", "cancel"],
-  submitted: ["review", "approve", "reject", "cancel"],
-  in_review: ["approve", "reject", "cancel"],
-  approved: ["activate", "complete", "close"],
-  active: ["complete", "close"],
-  rejected: ["reopen", "cancel"],
-  completed: ["close", "reopen"],
-  cancelled: ["reopen"],
-  closed: [],
-};
-
-const APPROVER_ACTIONS = new Set(["review", "approve", "reject", "activate", "complete", "close"]);
-
-const ACTION_META: Record<string, { label: string; icon: React.ElementType; danger?: boolean }> = {
-  submit: { label: "Submit", icon: Send },
-  review: { label: "Start Review", icon: Eye },
-  approve: { label: "Approve", icon: CheckCircle2 },
-  reject: { label: "Reject", icon: XCircle, danger: true },
-  activate: { label: "Activate", icon: Play },
-  complete: { label: "Complete", icon: Check },
-  close: { label: "Close", icon: CheckCircle2 },
-  cancel: { label: "Cancel", icon: XCircle, danger: true },
-  reopen: { label: "Reopen", icon: RotateCcw },
-};
-
-
-function emptyForm(module?: OperationalModule): FormState {
-  return {
-    record_type: Object.keys(module?.record_types ?? {})[0] ?? "",
-    reference_no: "",
-    title: "",
-    description: "",
-    priority: "normal",
-    project_id: "",
-    partner_name: "",
-    amount: "0",
-    currency: "IDR",
-    progress: "0",
-    due_date: "",
-    owner_id: "",
-    details: {},
-  };
-}
-
-function formFromRecord(record: OperationalRecord): FormState {
-  return {
-    record_type: record.record_type,
-    reference_no: record.reference_no,
-    title: record.title,
-    description: record.description ?? "",
-    priority: record.priority,
-    project_id: record.project_id?.toString() ?? "",
-    partner_name: record.partner_name ?? "",
-    amount: String(record.amount),
-    currency: record.currency,
-    progress: String(record.progress),
-    due_date: record.due_date ?? "",
-    owner_id: record.owner_id?.toString() ?? "",
-    details: Object.fromEntries(
-      Object.entries(record.details ?? {}).map(([key, value]) => [key, value == null ? "" : String(value)]),
-    ),
-  };
-}
-
-function toPayload(form: FormState): OperationalRecordInput {
-  const details = Object.fromEntries(
-    Object.entries(form.details).filter(([, value]) => value !== ""),
-  );
-  return {
-    record_type: form.record_type,
-    ...(form.reference_no.trim() ? { reference_no: form.reference_no.trim() } : {}),
-    title: form.title.trim(),
-    description: form.description.trim() || undefined,
-    priority: form.priority,
-    project_id: form.project_id ? Number(form.project_id) : null,
-    partner_name: form.partner_name.trim() || undefined,
-    amount: Number(form.amount || 0),
-    currency: form.currency.toUpperCase(),
-    progress: Number(form.progress || 0),
-    due_date: form.due_date || null,
-    owner_id: form.owner_id ? Number(form.owner_id) : null,
-    details,
-  };
-}
-
-function formatMoney(value: number, currency: string): string {
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", year: "numeric" })
-    .format(new Date(`${value}T00:00:00`));
-}
-
-
-function RowActionMenu({
-  record,
-  module,
-  currentUserId,
-  onView,
-  onEdit,
-  onTransition,
-  onDelete,
-}: {
-  record: OperationalRecord;
-  module: OperationalModule;
-  currentUserId: number | null;
-  onView: () => void;
-  onEdit: () => void;
-  onTransition: (action: string) => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const canManage = module.can_approve || record.created_by === currentUserId || record.owner_id === currentUserId;
-  const actions = WORKFLOW_ACTIONS[record.status].filter(
-    action => !APPROVER_ACTIONS.has(action) || module.can_approve,
-  );
-  const deletable = canManage && ["draft", "rejected", "cancelled"].includes(record.status);
-
-  return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        onClick={() => setOpen(value => !value)}
-        className="p-2 rounded-lg text-[#94A3B8] hover:text-[#0C2138] hover:bg-[#F8FAF9] transition-colors"
-        aria-label={`Actions for ${record.reference_no}`}
-      >
-        <MoreHorizontal size={16} />
-      </button>
-      <FloatingActionMenu open={open} anchorRef={anchorRef} onClose={() => setOpen(false)} widthClass="w-52">
-        <MenuButton icon={Eye} label="View Details" onClick={() => { setOpen(false); onView(); }} />
-        {canManage && record.status !== "closed" && (
-          <MenuButton icon={Pencil} label={record.status === "draft" || record.status === "rejected" ? "Edit" : "Update Progress"} onClick={() => { setOpen(false); onEdit(); }} />
-        )}
-        {actions.map(action => {
-          const meta = ACTION_META[action];
-          return (
-            <MenuButton
-              key={action}
-              icon={meta.icon}
-              label={meta.label}
-              danger={meta.danger}
-              onClick={() => { setOpen(false); onTransition(action); }}
-            />
-          );
-        })}
-        {deletable && (
-          <MenuButton icon={Trash2} label="Delete" danger onClick={() => { setOpen(false); onDelete(); }} />
-        )}
-      </FloatingActionMenu>
-    </>
-  );
-}
-
-function MenuButton({
-  icon: Icon,
-  label,
-  danger = false,
-  onClick,
-}: {
-  icon: React.ElementType;
-  label: string;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[12px] transition-colors ${
-        danger ? "text-red-600 hover:bg-red-50" : "text-[#33445A] hover:bg-[#F8FAF9]"
-      }`}
-    >
-      <Icon size={14} />
-      {label}
-    </button>
-  );
-}
 
 
 export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
@@ -772,58 +458,6 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
         danger
         loading={deleteMutation.isPending}
       />
-    </div>
-  );
-}
-
-
-function SummaryTile({
-  label,
-  value,
-  danger = false,
-  className = "",
-}: {
-  label: string;
-  value: string;
-  danger?: boolean;
-  className?: string;
-}) {
-  return (
-    <div className={`bg-white border border-[#E7E5DF] rounded-lg px-4 py-3 shadow-xs min-w-0 ${className}`}>
-      <p className="text-[9px] font-bold tracking-[0.12em] uppercase text-[#94A3B8] truncate">{label}</p>
-      <p className={`font-mono text-[17px] font-bold mt-1 truncate ${danger ? "text-red-600" : "text-[#0C2138]"}`}>{value}</p>
-    </div>
-  );
-}
-
-function FilterSelect({
-  value,
-  onChange,
-  label,
-  children,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={event => onChange(event.target.value)}
-      className="h-10 rounded-lg border border-[#E7E5DF] bg-white px-3 text-[12px] text-[#33445A] outline-none focus:border-[#0A3A63] min-w-[145px]"
-    >
-      <option value="">{label}</option>
-      {children}
-    </select>
-  );
-}
-
-function DetailValue({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[9px] font-bold tracking-[0.1em] uppercase text-[#94A3B8] truncate">{label}</p>
-      <div className="text-[12px] font-medium text-[#33445A] mt-1 truncate">{children}</div>
     </div>
   );
 }

@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth, useRole } from "@/lib/auth-context";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { CommandPalette } from "@/components/command-palette";
 import { ForcePasswordChange } from "@/components/auth/force-password-change";
 import Link from "next/link";
 import {
@@ -13,6 +13,12 @@ import {
   Plus, Fingerprint, CalendarDays, Home, Banknote,
 } from "lucide-react";
 import { recordRecentModule } from "@/lib/recent-modules";
+import { hasSearchAccess, menuKeyForPath } from "@/lib/menu-access";
+
+const CommandPalette = dynamic(
+  () => import("@/components/command-palette").then((module) => module.CommandPalette),
+  { ssr: false },
+);
 
 // ── Mobile bottom nav ─────────────────────────────────────────────────────────
 
@@ -86,13 +92,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { isWorker, isSelfService } = useRole();
   const router   = useRouter();
   const pathname = usePathname();
-  const canSearch = [
-    "project_command", "spending", "action_center", "revenue_ar", "legal", "inventory",
-    "procurement", "accounts_payable", "accounting_tax", "project_execution",
-    "engineering_documents", "quality_control", "hse", "warehouse_logistics",
-    "equipment_assets", "contract_management", "crm_tender", "manpower_operations", "budget_bi",
-  ]
-    .some((key) => canAccessMenu(key));
+  const canSearch = hasSearchAccess(canAccessMenu);
 
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
   const [paletteOpen,  setPaletteOpen]  = useState(false);
@@ -188,51 +188,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile FAB — only for full ERP users who have spending access (not self-service) */}
       {!isSelfService && <MobileFAB canAccess={canAccessMenu("spending")} />}
 
-      {canSearch && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
+      {canSearch && paletteOpen && (
+        <CommandPalette open onClose={() => setPaletteOpen(false)} />
+      )}
       <ForcePasswordChange />
     </div>
   );
-}
-
-function menuKeyForPath(pathname: string): string | null {
-  if (pathname === "/home")                  return null; // always accessible, no key needed
-  if (pathname.startsWith("/dashboard"))     return "dashboard";
-  if (pathname.startsWith("/action-center")) return "action_center";
-  if (pathname.startsWith("/projects"))      return "project_command";
-  if (pathname.startsWith("/revenue"))       return "revenue_ar";
-  if (pathname.startsWith("/spending"))      return "spending";
-  if (pathname.startsWith("/inventory"))     return "inventory";
-  if (pathname.startsWith("/legal"))         return "legal";
-  if (pathname.startsWith("/reports"))       return "reports";
-  if (pathname.startsWith("/accounts-payable")) return "accounts_payable";
-  if (pathname.startsWith("/accounting-tax")) return "accounting_tax";
-  if (pathname.startsWith("/budget-bi")) return "budget_bi";
-  if (pathname.startsWith("/project-execution")) return "project_execution";
-  if (pathname.startsWith("/procurement")) return "procurement";
-  if (pathname.startsWith("/engineering-documents")) return "engineering_documents";
-  if (pathname.startsWith("/quality-control")) return "quality_control";
-  if (pathname.startsWith("/hse")) return "hse";
-  if (pathname.startsWith("/warehouse-logistics")) return "warehouse_logistics";
-  if (pathname.startsWith("/equipment-assets")) return "equipment_assets";
-  if (pathname.startsWith("/contracts")) return "contract_management";
-  if (pathname.startsWith("/crm-tenders")) return "crm_tender";
-  if (pathname.startsWith("/settings"))      return "settings";
-  if (pathname.startsWith("/vault"))         return "vault";
-  // HRIS self-service (more specific first)
-  if (pathname.startsWith("/hris/me/payslip"))    return "hris_my_payslip";
-  if (pathname.startsWith("/hris/me/documents"))  return "hris_my_payslip";
-  if (pathname.startsWith("/hris/me/overtime"))   return "hris_attendance";
-  if (pathname.startsWith("/hris/me/leave"))      return "hris_leave";
-  if (pathname.startsWith("/hris/me/attendance")) return "hris_attendance";
-  if (pathname === "/hris/me")                    return null;
-  // HRIS admin
-  if (pathname.startsWith("/hris/manpower"))       return "manpower_operations";
-  if (pathname.startsWith("/hris/employees"))     return "hris_employees";
-  if (pathname.startsWith("/hris/attendance"))    return "hris_attendance";
-  if (pathname.startsWith("/hris/leave"))         return "hris_leave";
-  if (pathname.startsWith("/hris/payroll"))       return "hris_payroll";
-  if (pathname.startsWith("/hris/recruitment"))   return "hris_recruitment";
-  if (pathname.startsWith("/hris/settings"))      return "hris_settings";
-  if (pathname.startsWith("/hris"))               return "hris_dashboard";
-  return null;
 }

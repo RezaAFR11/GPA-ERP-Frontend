@@ -2,14 +2,9 @@ import type { Expense, RoleName } from "@/lib/types";
 import { expensesApi } from "@/lib/api";
 
 export async function loadActionCenterExpenses(): Promise<Expense[]> {
-  const items: Expense[] = [];
-  let skip = 0;
-  while (true) {
-    const response = await expensesApi.list({ my_queue: false, skip, limit: 500 });
-    items.push(...response.data.items);
-    if (items.length >= response.data.total || response.data.items.length === 0) return items;
-    skip += response.data.items.length;
-  }
+  // The backend applies the same role/status candidate rules so the global
+  // badge no longer downloads the complete historical expense ledger.
+  return expensesApi.actionQueue().then((response) => response.data);
 }
 
 function effectiveRoles(role: RoleName | null): RoleName[] {

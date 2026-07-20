@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import {
   FileText, Plus, Download, Send, CheckCircle2, XCircle,
   Clock, PenLine, Trash2, Eye, AlertCircle, RefreshCw, Search,
@@ -10,11 +11,21 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionModal } from "@/components/ui/confirm-action-modal";
 import { Pagination } from "@/components/ui/pagination";
-import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { DOC_TEMPLATES } from "@/lib/doc-templates";
 import { cn, fmtDate, formatCurrency, getErrorMessage } from "@/lib/utils";
 import { useAuth, useRole } from "@/lib/auth-context";
 import type { DocStatus, DocType, LegalDocument, LegalDocCreate } from "@/lib/types";
+
+// Tiptap is only required by the create/edit dialog, not by the document list.
+const RichTextEditor = dynamic(
+  () => import("@/components/ui/rich-text-editor").then((module) => module.RichTextEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[220px] rounded-lg border border-gray-200 bg-gray-50 animate-pulse" />
+    ),
+  },
+);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

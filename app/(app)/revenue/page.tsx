@@ -1,18 +1,14 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { Plus, CheckCircle, ReceiptText, WalletCards, AlertCircle, Percent, Pencil, Search, Trash2, X, MoreHorizontal } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { receivablesApi, projectsApi } from "@/lib/api";
-import { formatCurrency, fmtDate, getErrorMessage, getCurrencySymbol } from "@/lib/utils";
+import { formatCurrency, fmtDate, getErrorMessage } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ARStatusBadge } from "@/components/ui/badge";
-import { Modal } from "@/components/ui/modal";
 import { FloatingActionMenu } from "@/components/ui/floating-action-menu";
-import { Input, Select, Textarea } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
@@ -21,50 +17,23 @@ import { useTableSort } from "@/lib/table-sort";
 import { useRole } from "@/lib/auth-context";
 import type { AccountReceivable } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  descriptionSummary,
+  invoiceLabel,
+  paidAmount,
+  paymentState,
+  remainingAmount,
+} from "@/lib/revenue-calculations";
+import type { InvoiceFormData } from "./components/invoice-form-modal";
 
-const schema = z.object({
-  project_id: z.coerce.number().min(1, "Select a project"),
-  amount: z.coerce.number().min(0.01, "Must be > 0"),
-  actual_payment: z.coerce.number().min(0).optional(),
-  invoice_no: z.string().optional(),
-  customer_name: z.string().optional(),
-  due_date: z.string().optional(),
-  description: z.string().min(3, "At least 3 characters"),
-}).refine((data) => (data.actual_payment ?? 0) <= data.amount, {
-  path: ["actual_payment"],
-  message: "Payment cannot exceed invoice amount",
+// Form libraries are only needed after Create or Edit is opened.
+const InvoiceFormModal = dynamic(() => import("./components/invoice-form-modal"), {
+  ssr: false,
 });
-type FormData = z.infer<typeof schema>;
+
 type PaymentFilter = "all" | "paid" | "partial" | "open";
 type RevenueSortKey = "id" | "invoice_no" | "project" | "customer_name" | "description" | "amount" | "paid" | "outstanding" | "due_date" | "status";
 const PAGE_SIZE = 20;
-
-function paidAmount(ar: AccountReceivable) {
-  return ar.actual_payment ?? 0;
-}
-
-function remainingAmount(ar: AccountReceivable) {
-  return Math.max(ar.amount - paidAmount(ar), 0);
-}
-
-function paymentState(ar: AccountReceivable) {
-  const paid = paidAmount(ar);
-  const remaining = remainingAmount(ar);
-  if (paid > 0 && remaining <= 1) return "paid";
-  if (paid > 0) return "partial";
-  return "open";
-}
-
-function invoiceLabel(ar: AccountReceivable) {
-  if (ar.invoice_no) return ar.invoice_no;
-  const match = ar.description.match(/Invoice:\s*([^\n]+)/i);
-  return match?.[1]?.trim() || `AR-${ar.id}`;
-}
-
-function descriptionSummary(ar: AccountReceivable) {
-  const match = ar.description.match(/Description:\s*([^\n]+)/i);
-  return (match?.[1] || ar.description).replace(/\n/g, " ").trim();
-}
 
 function RevenueActionMenu({
   ar,
@@ -158,9 +127,6 @@ export default function RevenuePage() {
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<AccountReceivable | null>(null);
   const [deleting, setDeleting] = useState<AccountReceivable | null>(null);
-  const [amtDisp, setAmtD] = useState("");
-  const [paidDisp, setPaidD] = useState("");
-  const [editAmounts, setEditAmounts] = useState({ amount: "", paid: "", remaining: "" });
   const { sortKey, sortDirection, toggleSort } = useTableSort<RevenueSortKey>("id", "desc");
 
   function handleSort(column: RevenueSortKey) {
@@ -215,14 +181,8 @@ export default function RevenuePage() {
   const totalOutstanding = Number(summary?.total_outstanding ?? 0);
   const collectionRate = Number(summary?.collection_rate ?? 0);
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } =
-    useForm<FormData>({
-      resolver: zodResolver(schema),
-      defaultValues: { actual_payment: 0 },
-    });
-
   const createMut = useMutation({
-    mutationFn: (d: FormData) => receivablesApi.create({
+    mutationFn: (d: InvoiceFormData) => receivablesApi.create({
       ...d,
       actual_payment: d.actual_payment || undefined,
       remaining_amount: Math.max(d.amount - (d.actual_payment || 0), 0),
@@ -231,13 +191,13 @@ export default function RevenuePage() {
     onSuccess: (r) => {
       toastSuccess("Invoice created", `${invoiceLabel(r.data)} - ${formatCurrency(r.data.amount)}`);
       qc.invalidateQueries({ queryKey: ["receivables"] });
-      reset(); setAmtD(""); setPaidD(""); setNew(false);
+      setNew(false);
     },
     onError: (e) => toastError("Failed", getErrorMessage(e)),
   });
 
   const updateMut = useMutation({
-    mutationFn: (d: FormData) => {
+    mutationFn: (d: InvoiceFormData) => {
       if (!editing) throw new Error("No invoice selected");
       return receivablesApi.update(editing.id, {
         project_id: d.project_id,
@@ -254,7 +214,6 @@ export default function RevenuePage() {
       qc.invalidateQueries({ queryKey: ["receivables"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       setEditing(null);
-      reset();
     },
     onError: (e) => toastError("Update failed", getErrorMessage(e)),
   });
@@ -280,17 +239,6 @@ export default function RevenuePage() {
     onError: (e) => toastError("Confirmation failed", getErrorMessage(e)),
   });
 
-  function moneyInput(
-    setter: (value: string) => void,
-    field: "amount" | "actual_payment",
-  ) {
-    return (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value.replace(/[^0-9.]/g, "");
-      setter(raw.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
-      setValue(field, parseFloat(raw) || 0, { shouldValidate: true });
-    };
-  }
-
   function cleanDate(value: string | null | undefined) {
     if (!value) return "-";
     const year = new Date(value).getFullYear();
@@ -303,23 +251,6 @@ export default function RevenuePage() {
 
   function openEdit(ar: AccountReceivable) {
     setEditing(ar);
-    const due = ar.due_date && new Date(ar.due_date).getFullYear() > 1901
-      ? new Date(ar.due_date).toISOString().slice(0, 10)
-      : "";
-    reset({
-      project_id: ar.project_id,
-      amount: ar.amount,
-      actual_payment: paidAmount(ar),
-      invoice_no: invoiceLabel(ar),
-      customer_name: ar.customer_name || "",
-      due_date: due,
-      description: descriptionSummary(ar),
-    });
-    setEditAmounts({
-      amount: ar.amount.toLocaleString("en-US", { maximumFractionDigits: 0 }),
-      paid: paidAmount(ar).toLocaleString("en-US", { maximumFractionDigits: 0 }),
-      remaining: remainingAmount(ar).toLocaleString("en-US", { maximumFractionDigits: 0 }),
-    });
   }
 
   function deleteInvoice(ar: AccountReceivable) {
@@ -329,21 +260,6 @@ export default function RevenuePage() {
     }
 
     setDeleting(ar);
-  }
-
-  function editMoneyInput(field: "amount" | "actual_payment") {
-    return (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value.replace(/[^0-9.]/g, "");
-      const formatted = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-      setEditAmounts((current) => {
-        const next = { ...current, [field === "actual_payment" ? "paid" : "amount"]: formatted };
-        const amount = parseFloat(next.amount.replace(/,/g, "")) || 0;
-        const paid = parseFloat(next.paid.replace(/,/g, "")) || 0;
-        next.remaining = Math.max(amount - paid, 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
-        return next;
-      });
-      setValue(field, parseFloat(raw) || 0, { shouldValidate: true });
-    };
   }
 
   return (
@@ -493,115 +409,26 @@ export default function RevenuePage() {
         )}
       </Card>
 
-      <Modal
-        open={newOpen}
-        onClose={() => { reset(); setAmtD(""); setPaidD(""); setNew(false); }}
-        title="New Invoice"
-        subtitle="Track what was billed and how much the client has paid"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => { reset(); setAmtD(""); setPaidD(""); setNew(false); }}>Cancel</Button>
-            <Button variant="primary" loading={isSubmitting || createMut.isPending}
-              onClick={handleSubmit((d) => createMut.mutate(d))}>
-              Create Invoice
-            </Button>
-          </>
-        }
-      >
-        <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-          <Select label="Project" placeholder="Select project..." error={errors.project_id?.message} {...register("project_id")}>
-            {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-          </Select>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Invoice No" placeholder="INV.GPA..." {...register("invoice_no")} />
-            <Input label="Client" placeholder="Client name" {...register("customer_name")} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Invoice Amount</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">{getCurrencySymbol()}</span>
-                <input type="text" inputMode="decimal" value={amtDisp} onChange={moneyInput(setAmtD, "amount")}
-                  className="w-full pl-7 pr-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50" />
-              </div>
-              {errors.amount && <p className="text-xs text-red-500">{errors.amount.message}</p>}
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Payment Received</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">{getCurrencySymbol()}</span>
-                <input type="text" inputMode="decimal" value={paidDisp} onChange={moneyInput(setPaidD, "actual_payment")}
-                  className="w-full pl-7 pr-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50" />
-              </div>
-            </div>
-          </div>
-          <Input type="date" label="Due Date" {...register("due_date")} />
-          <Textarea label="Description" placeholder="Work package, milestone, or invoice notes" error={errors.description?.message} {...register("description")} />
-        </form>
-      </Modal>
+      {newOpen && (
+        <InvoiceFormModal
+          mode="create"
+          projects={activeProjects}
+          pending={createMut.isPending}
+          onClose={() => setNew(false)}
+          onSubmit={(data) => createMut.mutate(data)}
+        />
+      )}
 
-      <Modal
-        open={!!editing}
-        onClose={() => { setEditing(null); reset(); }}
-        title="Update Invoice"
-        subtitle="Edit invoice amount, client payment, and outstanding AR"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => { setEditing(null); reset(); }}>Cancel</Button>
-            <Button
-              variant="primary"
-              loading={isSubmitting || updateMut.isPending}
-              onClick={handleSubmit((d) => updateMut.mutate(d))}
-            >
-              Save Updates
-            </Button>
-          </>
-        }
-      >
-        <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-          <Select label="Project" placeholder="Select project..." error={errors.project_id?.message} {...register("project_id")}>
-            {editProjects.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-          </Select>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Invoice No" placeholder="INV.GPA..." {...register("invoice_no")} />
-            <Input label="Client" placeholder="Client name" {...register("customer_name")} />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Invoiced</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={editAmounts.amount}
-                onChange={editMoneyInput("amount")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Paid</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={editAmounts.paid}
-                onChange={editMoneyInput("actual_payment")}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Outstanding</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={editAmounts.remaining}
-                readOnly
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500 font-mono cursor-not-allowed"
-              />
-            </div>
-          </div>
-          <Input type="date" label="Due Date" {...register("due_date")} />
-          <Textarea label="Description" placeholder="Work package, milestone, or invoice notes" error={errors.description?.message} {...register("description")} />
-        </form>
-      </Modal>
+      {editing && (
+        <InvoiceFormModal
+          mode="edit"
+          invoice={editing}
+          projects={editProjects}
+          pending={updateMut.isPending}
+          onClose={() => setEditing(null)}
+          onSubmit={(data) => updateMut.mutate(data)}
+        />
+      )}
 
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

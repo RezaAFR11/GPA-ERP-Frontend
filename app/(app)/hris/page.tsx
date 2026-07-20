@@ -1,13 +1,11 @@
 ﻿"use client";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import {
   Users, Fingerprint, CalendarDays, AlertTriangle, UserCheck,
   TrendingUp, TrendingDown, Clock, Banknote,
 } from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line,
-} from "recharts";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,7 +18,18 @@ import { sortTableRows, useTableSort } from "@/lib/table-sort";
 
 type ContractSortKey = "employee_no" | "name" | "end_date" | "days_left";
 
-const TIPE_COLORS_PIE = ["#0D9488", "#2563EB", "#EA580C"];
+const HeadcountTrendChart = dynamic(
+  () => import("./components/dashboard-charts").then((module) => module.HeadcountTrendChart),
+  { ssr: false, loading: () => <Skeleton className="h-48 w-full" /> },
+);
+const DepartmentAttendanceChart = dynamic(
+  () => import("./components/dashboard-charts").then((module) => module.DepartmentAttendanceChart),
+  { ssr: false, loading: () => <Skeleton className="h-48 w-full" /> },
+);
+const EmploymentTypeChart = dynamic(
+  () => import("./components/dashboard-charts").then((module) => module.EmploymentTypeChart),
+  { ssr: false, loading: () => <Skeleton className="h-48 w-full" /> },
+);
 
 export default function HrisDashboardPage() {
   const now = new Date();
@@ -30,23 +39,26 @@ export default function HrisDashboardPage() {
     queryFn: () => hrisDashboardApi.getStats(now.getFullYear(), now.getMonth() + 1).then((r) => r.data),
   });
   const contractSort = useTableSort<ContractSortKey>("days_left", "asc");
-  const expiringContracts = sortTableRows(
-    stats?.pkwt_expiring_list ?? [],
-    contractSort.sortKey,
-    contractSort.sortDirection,
-    {
-      employee_no: (employee) => employee.employee_no,
-      name: (employee) => employee.full_name,
-      end_date: (employee) => employee.end_date,
-      days_left: (employee) => employee.days_left,
-    },
+  const expiringContracts = useMemo(
+    () => sortTableRows(
+      stats?.pkwt_expiring_list ?? [],
+      contractSort.sortKey,
+      contractSort.sortDirection,
+      {
+        employee_no: (employee) => employee.employee_no,
+        name: (employee) => employee.full_name,
+        end_date: (employee) => employee.end_date,
+        days_left: (employee) => employee.days_left,
+      },
+    ),
+    [contractSort.sortDirection, contractSort.sortKey, stats?.pkwt_expiring_list],
   );
 
-  const tipeData  = [
-    { name: "Tetap",     value: stats?.employment_type_counts.Tetap ?? 0     },
-    { name: "PKWT",      value: stats?.employment_type_counts.PKWT ?? 0      },
+  const tipeData = useMemo(() => [
+    { name: "Tetap", value: stats?.employment_type_counts.Tetap ?? 0 },
+    { name: "PKWT", value: stats?.employment_type_counts.PKWT ?? 0 },
     { name: "Outsource", value: stats?.employment_type_counts.Outsource ?? 0 },
-  ].filter((d) => d.value > 0);
+  ].filter((item) => item.value > 0), [stats?.employment_type_counts]);
 
   const quickLinks = [
     { href: "/hris/employees",  menuKey: "hris_employees",  label: "Data Karyawan",    icon: Users,        color: "teal"   },
@@ -95,20 +107,7 @@ export default function HrisDashboardPage() {
           </div>
           <div className="p-5">
             {isLoading ? <Skeleton className="h-48 w-full" /> : (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={stats?.headcount_trend ?? []}
-                  margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E5E7EB" }}
-                    formatter={(v: number) => [v, "Karyawan"]}
-                  />
-                  <Line dataKey="count" name="Karyawan" stroke="#0D9488" strokeWidth={2.5}
-                    dot={{ fill: "#0D9488", r: 3 }} activeDot={{ r: 5 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <HeadcountTrendChart data={stats?.headcount_trend ?? []} />
             )}
           </div>
         </Card>
@@ -219,26 +218,7 @@ export default function HrisDashboardPage() {
           </div>
           <div className="p-5">
             {isLoading ? <Skeleton className="h-48 w-full" /> : (
-              <ResponsiveContainer width="100%" height={Math.max(160, (stats?.dept_attendance?.length ?? 0) * 28)}>
-                <BarChart
-                  data={stats?.dept_attendance ?? []}
-                  layout="vertical"
-                  margin={{ top: 0, right: 32, left: 8, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="dept" tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false} tickLine={false} width={90} />
-                  <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E5E7EB" }}
-                    formatter={(v: number) => [`${v.toFixed(1)}%`, "Kehadiran"]}
-                  />
-                  <Bar dataKey="rate_pct" name="Kehadiran %" radius={[0, 3, 3, 0]}
-                    fill="#0D9488"
-                    label={{ position: "right", fontSize: 10, fill: "#6B7280", formatter: (v: number) => `${v.toFixed(0)}%` }}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <DepartmentAttendanceChart data={stats?.dept_attendance ?? []} />
             )}
           </div>
         </Card>
@@ -252,19 +232,7 @@ export default function HrisDashboardPage() {
             {isLoading ? <Skeleton className="h-48 w-full" /> : tipeData.length === 0 ? (
               <p className="text-sm text-gray-400">Belum ada data karyawan</p>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={tipeData} cx="50%" cy="50%"
-                    innerRadius={55} outerRadius={80}
-                    dataKey="value" nameKey="name" paddingAngle={4}>
-                    {tipeData.map((_, i) => (
-                      <Cell key={i} fill={TIPE_COLORS_PIE[i % TIPE_COLORS_PIE.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: number, name: string) => [v, name]} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: "#6B7280" }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <EmploymentTypeChart data={tipeData} />
             )}
           </div>
         </Card>

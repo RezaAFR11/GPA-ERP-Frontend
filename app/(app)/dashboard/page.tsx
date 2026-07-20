@@ -1,10 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
-} from "recharts";
+import dynamic from "next/dynamic";
 import {
   Wallet, TrendingUp, Layers, AlertCircle,
   ArrowUpRight, ArrowDownRight,
@@ -19,10 +16,21 @@ import { ExpenseStatusBadge } from "@/components/ui/badge";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
+import { loadAllPages } from "@/lib/load-all-pages";
+import {
+  buildProjectHealthMetrics,
+  type ProjectHealthMetric,
+  type ProjectHealthStatus,
+} from "@/lib/dashboard-metrics";
 import type { Expense, OperationalRecord, Project } from "@/lib/types";
 
 type RecentExpenseSortKey = "id" | "description" | "cost_code" | "amount" | "status" | "approver";
 type ProjectHealthSortKey = "project" | "progress" | "committed" | "hse" | "status";
+
+const MarginTrendChart = dynamic(() => import("./components/margin-trend-chart"), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[220px] w-full" />,
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,52 +48,19 @@ function getLast6Months(): { key: string; label: string }[] {
 }
 
 async function loadAllActiveProjects(): Promise<Project[]> {
-  const items: Project[] = [];
-  let skip = 0;
-  while (true) {
-    const response = await projectsApi.list({
-      status: "active", archived: false, skip, limit: 500,
-    });
-    items.push(...response.data.items);
-    if (items.length >= response.data.total || response.data.items.length === 0) return items;
-    skip += response.data.items.length;
-  }
+  return loadAllPages((skip, limit) =>
+    projectsApi.list({ status: "active", archived: false, skip, limit })
+      .then((response) => response.data)
+  );
 }
 
 async function loadAllOperationalRecords(
   module: string,
   recordType?: string,
 ): Promise<OperationalRecord[]> {
-  const items: OperationalRecord[] = [];
-  let skip = 0;
-  while (true) {
-    const response = await operationsApi.list(module, {
-      record_type: recordType,
-      skip,
-      limit: 500,
-    });
-    items.push(...response.data.items);
-    if (items.length >= response.data.total || response.data.items.length === 0) return items;
-    skip += response.data.items.length;
-  }
-}
-
-// ── Custom tooltip ────────────────────────────────────────────────────────────
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-xs text-white shadow-lg">
-      <p className="font-semibold text-gray-300 mb-1.5">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.name} className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-gray-400 capitalize">{p.name}:</span>
-          <span className="font-mono font-medium">
-            {p.name === "margin" ? `${p.value}%` : `${getCurrencySymbol(getStoredCurrency())}${p.value}M`}
-          </span>
-        </p>
-      ))}
-    </div>
+  return loadAllPages((skip, limit) =>
+    operationsApi.list(module, { record_type: recordType, skip, limit })
+      .then((response) => response.data)
   );
 }
 
@@ -120,17 +95,6 @@ function KPICard({
 }
 
 // ── Project health ────────────────────────────────────────────────────────────
-type ProjectHealthStatus = "on_track" | "at_risk" | "behind" | "needs_data";
-
-interface ProjectHealthMetric {
-  project: Project;
-  progress: number | null;
-  budgetUsed: number;
-  safeDays: number | null;
-  status: ProjectHealthStatus;
-  reason: string;
-}
-
 const HEALTH_STATUS: Record<ProjectHealthStatus, { label: string; className: string; dot: string }> = {
   on_track: {
     label: "On Track",
@@ -153,103 +117,6 @@ const HEALTH_STATUS: Record<ProjectHealthStatus, { label: string; className: str
     dot: "bg-gray-400",
   },
 };
-
-const TRUSTED_PROGRESS_STATUSES = new Set(["approved", "active", "completed", "closed"]);
-const IGNORED_HSE_STATUSES = new Set(["rejected", "cancelled"]);
-
-function asDate(value: unknown): Date | null {
-  if (typeof value !== "string" || !value) return null;
-  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function daysSince(value: Date, now: Date): number {
-  return Math.max(0, Math.floor((now.getTime() - value.getTime()) / 86_400_000));
-}
-
-function expectedScheduleProgress(project: Project, now: Date): number | null {
-  const start = asDate(project.start_date);
-  const end = asDate(project.end_date);
-  if (!start || !end || end <= start) return null;
-  const elapsed = now.getTime() - start.getTime();
-  const duration = end.getTime() - start.getTime();
-  return Math.max(0, Math.min(100, (elapsed / duration) * 100));
-}
-
-function latestRecord(records: OperationalRecord[]): OperationalRecord | undefined {
-  return [...records].sort((a, b) => {
-    const byUpdated = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-    return byUpdated || b.id - a.id;
-  })[0];
-}
-
-function buildProjectHealth(
-  project: Project,
-  progressRecords: OperationalRecord[],
-  hseRecords: OperationalRecord[],
-  now: Date,
-  canReadProgress: boolean,
-  canReadHse: boolean,
-): ProjectHealthMetric {
-  const progressRecord = latestRecord(progressRecords.filter((record) =>
-    record.project_id === project.id && TRUSTED_PROGRESS_STATUSES.has(record.status),
-  ));
-  const progress = progressRecord ? Math.max(0, Math.min(100, Number(progressRecord.progress))) : null;
-  const budgetUsed = Math.max(0, pct(project.total_committed, project.contract_value));
-  const projectHseRecords = hseRecords.filter((record) =>
-    record.project_id === project.id && !IGNORED_HSE_STATUSES.has(record.status),
-  );
-  const lostTimeIncidents = projectHseRecords.filter((record) =>
-    record.record_type === "incident" && Number(record.details?.lost_time_days ?? 0) > 0,
-  );
-  const latestLostTimeIncident = latestRecord(lostTimeIncidents);
-  const latestLostTimeDate = latestLostTimeIncident
-    ? asDate(latestLostTimeIncident.details?.event_date) ?? asDate(latestLostTimeIncident.created_at)
-    : null;
-  const hseBaseline = latestLostTimeDate ?? asDate(project.start_date);
-  const safeDays = projectHseRecords.length > 0 && hseBaseline ? daysSince(hseBaseline, now) : null;
-  const expectedProgress = expectedScheduleProgress(project, now);
-  const scheduleGap = progress != null && expectedProgress != null ? expectedProgress - progress : 0;
-  const projectEnd = asDate(project.end_date);
-  const isOverdue = !!projectEnd && projectEnd < now && (progress ?? 0) < 100;
-  const recentLostTimeIncident = latestLostTimeDate ? daysSince(latestLostTimeDate, now) <= 30 : false;
-
-  // Health combines approved progress, schedule, committed spend, and recorded HSE evidence.
-  if (budgetUsed > 100 || isOverdue || scheduleGap >= 30) {
-    return {
-      project, progress, budgetUsed, safeDays, status: "behind",
-      reason: budgetUsed > 100
-        ? "Committed spend exceeds contract value"
-        : isOverdue
-          ? "Project end date has passed"
-          : "Progress is materially behind schedule",
-    };
-  }
-  if (budgetUsed >= 90 || scheduleGap >= 15 || recentLostTimeIncident) {
-    return {
-      project, progress, budgetUsed, safeDays, status: "at_risk",
-      reason: recentLostTimeIncident
-        ? "Lost-time incident recorded in the last 30 days"
-        : budgetUsed >= 90
-          ? "Committed spend is nearing contract value"
-          : "Progress is behind the planned schedule",
-    };
-  }
-  if (progress == null || (canReadHse && projectHseRecords.length === 0)) {
-    return {
-      project, progress, budgetUsed, safeDays, status: "needs_data",
-      reason: progress == null
-        ? canReadProgress
-          ? "No approved progress update has been recorded"
-          : "Project Execution access is required to assess progress"
-        : "No HSE activity has been recorded for this project",
-    };
-  }
-  return {
-    project, progress, budgetUsed, safeDays, status: "on_track",
-    reason: "Progress, budget, schedule, and HSE indicators are within limits",
-  };
-}
 
 function HealthBadge({ metric }: { metric: ProjectHealthMetric }) {
   const style = HEALTH_STATUS[metric.status];
@@ -298,7 +165,10 @@ export default function DashboardPage() {
     queryKey: ["projects", "dashboard", "active"],
     queryFn: loadAllActiveProjects,
   });
-  const projects = allProjects.filter((project) => (project.currency || "IDR") === reportingCurrency);
+  const projects = useMemo(
+    () => allProjects.filter((project) => (project.currency || "IDR") === reportingCurrency),
+    [allProjects, reportingCurrency],
+  );
 
   const { data: progressRecords = [], isLoading: progressLoad } = useQuery({
     queryKey: ["operational-records", "dashboard", "project_execution", "progress_update"],
@@ -321,40 +191,51 @@ export default function DashboardPage() {
     queryKey: ["reports", "dashboard-trend", reportingCurrency],
     queryFn: () => reportsApi.dashboardTrend(reportingCurrency).then((r) => r.data),
   });
-  const recentExpenses = sortTableRows<Expense, RecentExpenseSortKey>(
-    recentExpenseData?.items ?? [],
-    recentSort.sortKey,
-    recentSort.sortDirection,
-    {
-      id: (expense) => expense.id,
-      description: (expense) => expense.description,
-      cost_code: (expense) => expense.cost_code?.code,
-      amount: (expense) => expense.amount,
-      status: (expense) => expense.status,
-      approver: (expense) => expense.current_approver_role,
-    },
-  ).slice(0, 8);
-  const now = new Date();
-  const projectHealth = sortTableRows(
-    projects.map((project) =>
-      buildProjectHealth(
-        project,
+  const recentExpenses = useMemo(
+    () => sortTableRows<Expense, RecentExpenseSortKey>(
+      recentExpenseData?.items ?? [],
+      recentSort.sortKey,
+      recentSort.sortDirection,
+      {
+        id: (expense) => expense.id,
+        description: (expense) => expense.description,
+        cost_code: (expense) => expense.cost_code?.code,
+        amount: (expense) => expense.amount,
+        status: (expense) => expense.status,
+        approver: (expense) => expense.current_approver_role,
+      },
+    ).slice(0, 8),
+    [recentExpenseData?.items, recentSort.sortDirection, recentSort.sortKey],
+  );
+  const projectHealth = useMemo(
+    () => sortTableRows(
+      buildProjectHealthMetrics(
+        projects,
         progressRecords,
         hseRecords,
-        now,
+        new Date(),
         canReadProjectExecution,
         canReadHse,
       ),
+      healthSort.sortKey,
+      healthSort.sortDirection,
+      {
+        project: (metric) => metric.project.code,
+        progress: (metric) => metric.progress,
+        committed: (metric) => metric.project.total_committed,
+        hse: (metric) => metric.safeDays,
+        status: (metric) => metric.status,
+      },
     ),
-    healthSort.sortKey,
-    healthSort.sortDirection,
-    {
-      project: (metric) => metric.project.code,
-      progress: (metric) => metric.progress,
-      committed: (metric) => metric.project.total_committed,
-      hse: (metric) => metric.safeDays,
-      status: (metric) => metric.status,
-    },
+    [
+      canReadHse,
+      canReadProjectExecution,
+      healthSort.sortDirection,
+      healthSort.sortKey,
+      hseRecords,
+      progressRecords,
+      projects,
+    ],
   );
 
   function sortProjectHealth(column: ProjectHealthSortKey) {
@@ -483,50 +364,7 @@ export default function DashboardPage() {
                 No transaction data yet — chart will populate as expenses and revenue are recorded
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={marginTrend} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 11, fill: "#9CA3AF" }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    yAxisId="pct"
-                    orientation="right"
-                    tick={{ fontSize: 11, fill: "#9CA3AF" }}
-                    axisLine={false} tickLine={false}
-                    tickFormatter={(v) => `${v}%`}
-                    domain={[0, 100]}
-                  />
-                  <YAxis
-                    yAxisId="money"
-                    orientation="left"
-                    tick={{ fontSize: 11, fill: "#9CA3AF" }}
-                    axisLine={false} tickLine={false}
-                    tickFormatter={(v) => `${reportingSymbol}${v}M`}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Line
-                    yAxisId="money" type="monotone" dataKey="revenue"
-                    stroke="#1E40AF" strokeWidth={2} dot={{ r: 3, fill: "#1E40AF" }}
-                    activeDot={{ r: 5 }}
-                  />
-                  <Line
-                    yAxisId="money" type="monotone" dataKey="spent"
-                    stroke="#F59E0B" strokeWidth={2} dot={{ r: 3, fill: "#F59E0B" }}
-                    activeDot={{ r: 5 }} strokeDasharray="5 3"
-                  />
-                  <Line
-                    yAxisId="pct" type="monotone" dataKey="margin"
-                    stroke="#16A34A" strokeWidth={2} dot={{ r: 3, fill: "#16A34A" }}
-                    activeDot={{ r: 5 }}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9CA3AF" }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <MarginTrendChart data={marginTrend} currencySymbol={reportingSymbol} />
             )}
           </div>
         </Card>

@@ -1,13 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { expensesApi, hrisAttendanceApi, projectsApi, reportsApi } from "@/lib/api";
-import { formatCurrency, formatCompact, pct, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
+import { formatCurrency, getCurrencySymbol, getStoredCurrency } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,53 +14,39 @@ import { toastError } from "@/lib/hooks/use-toast";
 import { useAuth, useRole } from "@/lib/auth-context";
 import type { Expense, Project } from "@/lib/types";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
+import { loadAllPages } from "@/lib/load-all-pages";
+import {
+  buildExpenseCsv,
+  buildFinanceReport,
+  projectMarginPercent,
+} from "@/lib/report-calculations";
 
 const TABS = ["Overview", "Spending", "Margin", "Unduh Laporan"] as const;
 type Tab = typeof TABS[number];
 type MarginSortKey = "project" | "contract" | "revenue" | "committed" | "margin" | "health";
 
-const PIE_COLORS = [
-  "#1E40AF", "#F59E0B", "#16A34A", "#DC2626",
-  "#7C3AED", "#0891B2", "#D97706", "#374151",
-];
-
-const COMMITTED_EXPENSE_STATUSES = new Set(["verified", "approved", "paid", "hard_locked"]);
+const ProjectFinancialChart = dynamic(
+  () => import("./components/report-charts").then((module) => module.ProjectFinancialChart),
+  { ssr: false, loading: () => <Skeleton className="h-56 w-full" /> },
+);
+const SpendCategoryChart = dynamic(
+  () => import("./components/report-charts").then((module) => module.SpendCategoryChart),
+  { ssr: false, loading: () => <Skeleton className="h-56 w-full" /> },
+);
+const SpendDistributionChart = dynamic(
+  () => import("./components/report-charts").then((module) => module.SpendDistributionChart),
+  { ssr: false, loading: () => <Skeleton className="h-56 w-full" /> },
+);
 
 async function loadAllExpenses(): Promise<Expense[]> {
-  const items: Expense[] = [];
-  let skip = 0;
-  while (true) {
-    const response = await expensesApi.list({ skip, limit: 500 });
-    items.push(...response.data.items);
-    if (items.length >= response.data.total || response.data.items.length === 0) return items;
-    skip += response.data.items.length;
-  }
+  return loadAllPages((skip, limit) =>
+    expensesApi.list({ skip, limit }).then((response) => response.data)
+  );
 }
 
 async function loadAllProjects(): Promise<Project[]> {
-  const items: Project[] = [];
-  let skip = 0;
-  while (true) {
-    const response = await projectsApi.list({ skip, limit: 500 });
-    items.push(...response.data.items);
-    if (items.length >= response.data.total || response.data.items.length === 0) return items;
-    skip += response.data.items.length;
-  }
-}
-
-function CustomTooltip({ active, payload, label, currencySymbol }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-xs text-white shadow-lg">
-      <p className="font-semibold text-gray-300 mb-1">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.name} className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-sm" style={{ background: p.color }} />
-          <span className="text-gray-400">{p.name}:</span>
-          <span className="font-mono">{currencySymbol}{formatCompact(p.value)}</span>
-        </p>
-      ))}
-    </div>
+  return loadAllPages((skip, limit) =>
+    projectsApi.list({ skip, limit }).then((response) => response.data)
   );
 }
 
@@ -422,49 +405,31 @@ export default function ReportsPage() {
     queryKey: ["projects", "reports-all"],
     queryFn: loadAllProjects,
   });
-  const projects = allProjects.filter(
-    (project) => (project.currency || "IDR") === reportingCurrency
+  const report = useMemo(
+    () => buildFinanceReport(allProjects, allExpenses, reportingCurrency),
+    [allProjects, allExpenses, reportingCurrency],
   );
-  const sortedMarginProjects = sortTableRows(projects, marginSort.sortKey, marginSort.sortDirection, {
-    project: (project) => project.code,
-    contract: (project) => project.contract_value,
-    revenue: (project) => project.total_revenue,
-    committed: (project) => project.total_committed,
-    margin: (project) => project.total_revenue > 0
-      ? pct(project.total_revenue - project.total_committed, project.total_revenue)
-      : 0,
-    health: (project) => project.total_revenue > 0
-      ? pct(project.total_revenue - project.total_committed, project.total_revenue)
-      : 0,
-  });
-  const reportingProjectIds = new Set(projects.map((project) => project.id));
-  const expenses = allExpenses.filter(
-    (expense) => expense.project_id != null && reportingProjectIds.has(expense.project_id)
+  const {
+    projects,
+    expenses,
+    categoryData,
+    projectData,
+    totalRevenue,
+    totalCommitted,
+    totalContract,
+    margin,
+  } = report;
+  const sortedMarginProjects = useMemo(
+    () => sortTableRows(projects, marginSort.sortKey, marginSort.sortDirection, {
+      project: (project) => project.code,
+      contract: (project) => project.contract_value,
+      revenue: (project) => project.total_revenue,
+      committed: (project) => project.total_committed,
+      margin: projectMarginPercent,
+      health: projectMarginPercent,
+    }),
+    [projects, marginSort.sortDirection, marginSort.sortKey],
   );
-
-  // Aggregate: spending by cost code category
-  const categoryMap: Record<string, number> = {};
-  expenses.filter((expense) => COMMITTED_EXPENSE_STATUSES.has(expense.status)).forEach((e) => {
-    const cat = e.cost_code?.category ?? "Other";
-    categoryMap[cat] = (categoryMap[cat] ?? 0) + e.amount;
-  });
-  const categoryData = Object.entries(categoryMap)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  // Project bar data
-  const projectData = projects.map((p) => ({
-    name: p.code,
-    committed: p.total_committed,
-    revenue:   p.total_revenue,
-    remaining: Math.max(0, p.contract_value - p.total_committed),
-  }));
-
-  // Total stats
-  const totalRevenue   = projects.reduce((s, p) => s + p.total_revenue, 0);
-  const totalCommitted = projects.reduce((s, p) => s + p.total_committed, 0);
-  const totalContract  = projects.reduce((s, p) => s + p.contract_value, 0);
-  const margin         = totalRevenue > 0 ? pct(totalRevenue - totalCommitted, totalRevenue) : 0;
 
   async function exportExcel() {
     setExcelLoading(true);
@@ -481,13 +446,7 @@ export default function ReportsPage() {
   }
 
   function exportCSV() {
-    const headers = ["ID", "Project", "Cost Code", "Category", "Amount", "Status", "Date"];
-    const rows    = expenses.map((e) => [
-      e.id, e.project_id, e.cost_code?.code ?? "", e.cost_code?.category ?? "",
-      e.amount, e.status, e.created_at,
-    ]);
-    const csvCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+    const csv = buildExpenseCsv(expenses);
     const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
     const a   = document.createElement("a");
     a.href = url; a.download = "gpa-expenses.csv"; a.click();
@@ -565,18 +524,7 @@ export default function ReportsPage() {
             </div>
             <div className="p-5">
               {projLoad ? <Skeleton className="h-56 w-full" /> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={projectData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${reportingSymbol}${formatCompact(v)}`} />
-                    <Tooltip content={<CustomTooltip currencySymbol={reportingSymbol} />} />
-                    <Bar dataKey="revenue"   name="Revenue"   fill="#1E40AF" radius={[3,3,0,0]} />
-                    <Bar dataKey="committed" name="Committed" fill="#F59E0B" radius={[3,3,0,0]} />
-                    <Bar dataKey="remaining" name="Remaining" fill="#E5E7EB" radius={[3,3,0,0]} />
-                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9CA3AF" }} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <ProjectFinancialChart data={projectData} currencySymbol={reportingSymbol} />
               )}
             </div>
           </Card>
@@ -593,23 +541,7 @@ export default function ReportsPage() {
             </div>
             <div className="p-5">
               {expLoad ? <Skeleton className="h-56 w-full" /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={categoryData} layout="vertical"
-                    margin={{ top: 0, right: 24, left: 16, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 10, fill: "#9CA3AF" }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={(v) => `${reportingSymbol}${formatCompact(v)}`} />
-                    <YAxis type="category" dataKey="name"
-                      tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip currencySymbol={reportingSymbol} />} />
-                    <Bar dataKey="value" name="Spent" radius={[0,3,3,0]}>
-                      {categoryData.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <SpendCategoryChart data={categoryData} currencySymbol={reportingSymbol} />
               )}
             </div>
           </Card>
@@ -621,23 +553,7 @@ export default function ReportsPage() {
             </div>
             <div className="p-5 flex items-center justify-center">
               {expLoad ? <Skeleton className="h-56 w-full" /> : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%" cy="50%"
-                      innerRadius={60} outerRadius={90}
-                      dataKey="value" nameKey="name"
-                      paddingAngle={3}
-                    >
-                      {categoryData.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => formatCurrency(v, reportingSymbol)} />
-                    <Legend wrapperStyle={{ fontSize: 11, color: "#6B7280" }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                <SpendDistributionChart data={categoryData} currencySymbol={reportingSymbol} />
               )}
             </div>
           </Card>
@@ -663,9 +579,7 @@ export default function ReportsPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {sortedMarginProjects.map((p) => {
-                const m = p.total_revenue > 0
-                  ? pct(p.total_revenue - p.total_committed, p.total_revenue)
-                  : 0;
+                const m = projectMarginPercent(p);
                 return (
                   <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="td w-[28%]">

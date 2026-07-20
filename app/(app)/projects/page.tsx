@@ -7,6 +7,7 @@ import {
   Building2, AlertTriangle, X, Check, Archive, RotateCcw, Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { projectsApi } from "@/lib/api";
 import {
   formatCurrency, formatCompact, pct, fmtDate, getCurrencySymbol, CURRENCIES,
@@ -17,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { ProjectStatusBadge } from "@/components/ui/badge";
 import { CardSkeleton, TableSkeleton } from "@/components/ui/skeleton";
-import ImportModal from "./components/import-modal";
 import { cn } from "@/lib/utils";
 import type { Project, ProjectStatus } from "@/lib/types";
 import { toastSuccess, toastError } from "@/lib/hooks/use-toast";
@@ -25,6 +25,9 @@ import { Pagination } from "@/components/ui/pagination";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { useRole } from "@/lib/auth-context";
 import { useTableSort } from "@/lib/table-sort";
+
+// The spreadsheet parser is only needed after the user opens Import.
+const ImportModal = dynamic(() => import("./components/import-modal"), { ssr: false });
 
 const STATUS_OPTS: ProjectStatus[] = ["active", "on_hold", "completed", "cancelled"];
 type ProjectSortKey = "code" | "name" | "status" | "contract_value" | "burn_rate" | "margin" | "end_date";
@@ -707,7 +710,7 @@ export default function ProjectsPage() {
         />
       )}
 
-      {canManage && <ImportModal open={importOpen} onClose={() => setImport(false)} />}
+      {canManage && importOpen && <ImportModal open onClose={() => setImport(false)} />}
       <ConfirmDialog
         open={canDelete && !!deletingProject}
         onClose={() => {
