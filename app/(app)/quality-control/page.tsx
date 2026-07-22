@@ -1,4 +1,4 @@
-import { OperationalWorkspace } from "@/components/operations/operational-workspace";
+import { OperationalWorkspace } from "@/features/operations/shared/operational-workspace";
 
 export default function QualityControlPage() {
   return <OperationalWorkspace moduleKey="quality_control" />;

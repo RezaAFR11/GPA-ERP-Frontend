@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -132,21 +133,22 @@ function SidebarContent({ onClose }: { onClose: () => void }) {
   const { user, logout, canAccessMenu } = useAuth();
   const { isSuperAdmin, isSelfService } = useRole();
   const [branding, setBrandingState] = useState(getBranding);
+  const { data: sharedBranding } = useQuery({
+    queryKey: ["workspace-branding"],
+    queryFn: () => settingsApi.branding().then(({ data }) => data),
+  });
 
   useEffect(() => {
-    let cancelled = false;
     const refresh = () => setBrandingState(getBranding());
     window.addEventListener("gpa_branding_changed", refresh);
-    settingsApi.branding()
-      .then(({ data }) => {
-        if (!cancelled) setBranding(data);
-      })
-      .catch(() => undefined);
     return () => {
-      cancelled = true;
       window.removeEventListener("gpa_branding_changed", refresh);
     };
   }, []);
+
+  useEffect(() => {
+    if (sharedBranding) setBranding(sharedBranding);
+  }, [sharedBranding]);
 
   const isActive = (item: NavItem) => {
     const exactOnly = item.href === "/hris" || item.href === "/hris/me";

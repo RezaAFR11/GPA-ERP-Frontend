@@ -16,6 +16,7 @@ import type {
   Project,
   ProjectDocument,
   ProjectImportResult,
+  ProjectLookup,
   ReceivablesSummary,
 } from "../types";
 import { api, BASE_URL, type TableSortParams } from "./client";
@@ -25,6 +26,8 @@ import { api, BASE_URL, type TableSortParams } from "./client";
 export const projectsApi = {
   list:   (params?: { status?: string; archived?: boolean; include_archived?: boolean; search?: string; skip?: number; limit?: number } & TableSortParams) =>
     api.get<PaginatedResponse<Project>>("/projects", { params }),
+  lookup: (signal?: AbortSignal) =>
+    api.get<ProjectLookup[]>("/projects/lookup", { signal }),
   get:    (id: number)  => api.get<Project>(`/projects/${id}`),
   documents: (id: number) => api.get<ProjectDocument[]>(`/projects/${id}/documents`),
   documentUrl: (projectId: number, docId: number) =>
@@ -64,10 +67,10 @@ export const costCentresApi = {
 // ─── Receivables ──────────────────────────────────────────────────────────────
 
 export const receivablesApi = {
-  list:    (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string; skip?: number; limit?: number } & TableSortParams) =>
-    api.get<PaginatedResponse<AccountReceivable>>("/receivables", { params }),
-  summary: (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string }) =>
-    api.get<ReceivablesSummary>("/receivables/summary", { params }),
+  list:    (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string; skip?: number; limit?: number } & TableSortParams, signal?: AbortSignal) =>
+    api.get<PaginatedResponse<AccountReceivable>>("/receivables", { params, signal }),
+  summary: (params?: { project_id?: number; ar_status?: string; search?: string; payment_state?: string }, signal?: AbortSignal) =>
+    api.get<ReceivablesSummary>("/receivables/summary", { params, signal }),
   create:  (data: unknown)  => api.post<AccountReceivable>("/receivables", data),
   update:  (id: number, data: unknown) => api.patch<AccountReceivable>(`/receivables/${id}`, data),
   confirm: (id: number)     => api.post<AccountReceivable>(`/receivables/${id}/confirm`, {}),

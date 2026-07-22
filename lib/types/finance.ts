@@ -21,6 +21,14 @@ export interface Project {
   budget: number;
 }
 
+export interface ProjectLookup {
+  id: number;
+  code: string;
+  name: string;
+  is_archived: boolean;
+  status: ProjectStatus;
+}
+
 export interface ProjectDocument {
   id: number;
   project_id: number;
