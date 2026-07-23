@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -31,31 +32,31 @@ const config: Config = {
           50:      "#FEF8E6",
         },
         // Surfaces
-        surface:  "#FFFFFF",
-        "surface-2": "#F8FAF9",
-        canvas:   "#F0EFEA",
-        "canvas-tint": "#FAF8F4",
+        surface:  "var(--surface)",
+        "surface-2": "var(--surface-2)",
+        canvas:   "var(--canvas)",
+        "canvas-tint": "var(--canvas-tint)",
         // Sidebar (Garuda Navy)
         sidebar: {
-          DEFAULT: "#021B33",
-          hover:   "#06294A",
-          active:  "#0A3A63",
-          border:  "#0A2F52",
-          text:    "#8FA8C2",
-          heading: "#5C7795",
+          DEFAULT: "var(--sidebar)",
+          hover:   "var(--sidebar-hover)",
+          active:  "var(--sidebar-active)",
+          border:  "var(--sidebar-border)",
+          text:    "var(--sidebar-text)",
+          heading: "var(--sidebar-heading)",
         },
         // Foreground
         fg: {
-          1: "#0C2138",
-          2: "#33445A",
-          3: "#5E7186",
-          4: "#94A3B8",
+          1: "var(--fg-1)",
+          2: "var(--fg-2)",
+          3: "var(--fg-3)",
+          4: "var(--fg-4)",
         },
         // Borders
         border: {
-          DEFAULT: "#E7E5DF",
-          strong:  "#D6D3CB",
-          cool:    "#E2E8F0",
+          DEFAULT: "var(--border)",
+          strong:  "var(--border-strong)",
+          cool:    "var(--border-cool)",
         },
         // Status colors — LOCKED SEMANTICS
         status: {
@@ -93,11 +94,11 @@ const config: Config = {
         mono: ["var(--font-roboto-mono)", "Roboto Mono", "JetBrains Mono", "Consolas", "monospace"],
       },
       boxShadow: {
-        xs:    "0 1px 2px rgba(15,23,42,0.05)",
-        card:  "0 2px 8px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)",
-        "card-md": "0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)",
-        pop:   "0 8px 24px rgba(15,23,42,0.12)",
-        modal: "0 20px 60px -12px rgba(15,23,42,0.25)",
+        xs:    "var(--shadow-xs)",
+        card:  "var(--shadow-card)",
+        "card-md": "var(--shadow-md)",
+        pop:   "var(--shadow-pop)",
+        modal: "var(--shadow-modal)",
       },
       borderRadius: {
         xs:   "4px",

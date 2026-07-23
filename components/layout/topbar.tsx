@@ -13,6 +13,7 @@ import { useActionCenterCount } from "@/lib/hooks/use-action-center-count";
 import { NotificationBell } from "@/components/ui/notification-bell";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { hasSearchAccess } from "@/lib/menu-access";
 
 
@@ -137,6 +138,8 @@ export function Topbar({ onSearchOpen, onMenuOpen }: TopbarProps) {
           {canSearch && (
             <button onClick={onSearchOpen} className="sm:hidden topbar-icon" aria-label="Search"><Search size={18} /></button>
           )}
+
+          <ThemeToggle />
 
           {canAccessMenu("action_center") && (
             <Link href="/action-center" className="topbar-icon relative" aria-label="Action Center" title="Action Center">

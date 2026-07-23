@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { AuthProvider } from "@/lib/auth-context";
 import { ToastContainer } from "@/components/ui/toast";
+import { ThemeProvider } from "@/lib/theme-context";
 
 // Keep development diagnostics out of the production navigation bundle.
 const ReactQueryDevtools = process.env.NODE_ENV === "development"
@@ -28,12 +29,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        {children}
-        <ToastContainer />
-      </AuthProvider>
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          {children}
+          <ToastContainer />
+        </AuthProvider>
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
