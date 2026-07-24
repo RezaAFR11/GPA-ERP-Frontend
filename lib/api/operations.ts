@@ -9,6 +9,8 @@ import type {
   LegalDocument,
   LegalDocCreate,
   MessageResponse,
+  ClientPODetail,
+  OperationalAttachment,
   OperationalModule,
   OperationalRecord,
   OperationalRecordInput,
@@ -79,6 +81,8 @@ export const operationsApi = {
     api.get<OperationalSummary>(`/operations/${module}/summary`),
   get: (module: string, id: number) =>
     api.get<OperationalRecord>(`/operations/${module}/${id}`),
+  clientPoDetail: (module: string, id: number) =>
+    api.get<ClientPODetail>(`/operations/${module}/${id}/client-po`),
   create: (module: string, data: OperationalRecordInput) =>
     api.post<OperationalRecord>(`/operations/${module}`, data),
   update: (module: string, id: number, data: Partial<OperationalRecordInput>) =>
@@ -89,4 +93,24 @@ export const operationsApi = {
     api.delete<MessageResponse>(`/operations/${module}/${id}`),
   audit: (module: string, id: number) =>
     api.get<AuditLog[]>(`/operations/${module}/${id}/audit`),
+  uploadAttachment: (
+    module: string,
+    id: number,
+    file: File,
+    metadata: { title: string; doc_type?: string; reference_no?: string; is_confidential?: boolean },
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("title", metadata.title);
+    form.append("doc_type", metadata.doc_type ?? "client_po");
+    if (metadata.reference_no) form.append("reference_no", metadata.reference_no);
+    form.append("is_confidential", String(metadata.is_confidential ?? true));
+    return api.post<OperationalAttachment>(`/operations/${module}/${id}/attachments`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  deleteAttachment: (module: string, id: number, attachmentId: number) =>
+    api.delete<MessageResponse>(`/operations/${module}/${id}/attachments/${attachmentId}`),
+  attachmentUrl: (module: string, id: number, attachmentId: number) =>
+    `/api/operations/${module}/${id}/attachments/${attachmentId}/file`,
 };

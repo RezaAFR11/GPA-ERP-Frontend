@@ -142,6 +142,69 @@ export interface OperationalWorkflowEvent {
   note: string | null;
 }
 
+export interface ClientPOLineItemInput {
+  sequence: number;
+  item_no: string;
+  description: string;
+  manufacturer?: string;
+  model?: string;
+  quantity: number;
+  uom: string;
+  unit_price: number;
+  line_total: number;
+  technical_specs: Record<string, unknown>;
+}
+
+export interface ClientPOLineItem extends ClientPOLineItemInput {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientPOPaymentTermInput {
+  sequence: number;
+  percentage: number;
+  trigger: string;
+  calculation_basis: "dpp" | "grand_total";
+  dpp_amount: number;
+  tax_amount: number;
+  gross_amount: number;
+  due_date?: string | null;
+  status: "planned" | "invoiced" | "paid" | "cancelled";
+  invoice_no?: string;
+}
+
+export interface ClientPOPaymentTerm extends ClientPOPaymentTermInput {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientPODataInput {
+  line_items: ClientPOLineItemInput[];
+  payment_terms: ClientPOPaymentTermInput[];
+}
+
+export interface OperationalAttachment {
+  id: number;
+  doc_type: string;
+  title: string;
+  reference_no: string | null;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  is_confidential: boolean;
+  uploaded_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientPODetail {
+  line_items: ClientPOLineItem[];
+  payment_terms: ClientPOPaymentTerm[];
+  attachments: OperationalAttachment[];
+}
+
 export interface OperationalRecord {
   id: number;
   module: string;
@@ -182,6 +245,7 @@ export interface OperationalRecordInput {
   due_date?: string | null;
   owner_id?: number | null;
   details?: Record<string, unknown>;
+  client_po?: ClientPODataInput;
 }
 
 export interface OperationalSummary {

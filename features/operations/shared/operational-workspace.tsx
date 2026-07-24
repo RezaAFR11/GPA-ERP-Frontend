@@ -6,8 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { Clock3, History, Plus, Search } from "lucide-react";
 import { operationsApi, projectsApi } from "@/lib/api";
 import type {
-  OperationalPriority, OperationalRecord, OperationalRecordInput,
+  OperationalAttachment, OperationalPriority, OperationalRecord, OperationalRecordInput,
 } from "@/lib/types";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import { getErrorMessage } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
@@ -41,6 +42,15 @@ import {
   RowActionMenu,
   SummaryTile,
 } from "./operational-workspace-parts";
+import {
+  CLIENT_PO_TYPE,
+  ClientPODetailPanel,
+  ClientPOEditor,
+  clientPOEditorFromDetail,
+  clientPOToInput,
+  emptyClientPOEditor,
+  type ClientPOEditorState,
+} from "./client-po-editor";
 
 
 interface OperationalWorkspaceProps {
@@ -68,10 +78,15 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<OperationalRecord | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm());
+  const [clientPO, setClientPO] = useState<ClientPOEditorState>(() => emptyClientPOEditor());
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<OperationalAttachment[]>([]);
+  const [clientPOLoading, setClientPOLoading] = useState(false);
   const [viewing, setViewing] = useState<OperationalRecord | null>(null);
   const [transition, setTransition] = useState<{ record: OperationalRecord; action: string } | null>(null);
   const [transitionNote, setTransitionNote] = useState("");
   const [deleting, setDeleting] = useState<OperationalRecord | null>(null);
+  const [deletingAttachment, setDeletingAttachment] = useState<OperationalAttachment | null>(null);
   const { sortKey, sortDirection, toggleSort } = useTableSort<OperationalSortKey>("id", "desc");
 
   const modulesQuery = useQuery({
@@ -104,6 +119,11 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
     queryFn: () => projectsApi.list({ include_archived: false, limit: 500 }).then(response => response.data.items),
     staleTime: 60_000,
   });
+  const viewingClientPOQuery = useQuery({
+    queryKey: ["client-po-detail", moduleKey, viewing?.id],
+    queryFn: () => operationsApi.clientPoDetail(moduleKey, viewing!.id).then(response => response.data),
+    enabled: viewing?.record_type === CLIENT_PO_TYPE,
+  });
 
   const projects = projectsQuery.data ?? [];
   const projectMap = useMemo(
@@ -119,14 +139,34 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
   ]);
 
   const saveMutation = useMutation({
-    mutationFn: (payload: OperationalRecordInput) => editing
-      ? operationsApi.update(moduleKey, editing.id, payload)
-      : operationsApi.create(moduleKey, payload),
-    onSuccess: async ({ data }) => {
+    mutationFn: async (payload: OperationalRecordInput) => {
+      const response = editing
+        ? await operationsApi.update(moduleKey, editing.id, payload)
+        : await operationsApi.create(moduleKey, payload);
+      const failedFiles: string[] = [];
+      for (const file of payload.record_type === CLIENT_PO_TYPE ? pendingAttachments : []) {
+        try {
+          await operationsApi.uploadAttachment(moduleKey, response.data.id, file, {
+            title: file.name,
+            reference_no: response.data.reference_no,
+            is_confidential: true,
+          });
+        } catch {
+          failedFiles.push(file.name);
+        }
+      }
+      return { response, failedFiles };
+    },
+    onSuccess: async ({ response, failedFiles }) => {
+      const data = response.data;
       await invalidate();
       setFormOpen(false);
       setEditing(null);
+      setPendingAttachments([]);
       toastSuccess(editing ? "Record updated" : "Record created", `${data.reference_no} saved successfully`);
+      if (failedFiles.length) {
+        toastError("Record saved, but document upload failed", failedFiles.join(", "));
+      }
     },
     onError: error => toastError("Unable to save record", getErrorMessage(error)),
   });
@@ -151,27 +191,83 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
     },
     onError: error => toastError("Unable to delete record", getErrorMessage(error)),
   });
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attachment: OperationalAttachment) => {
+      if (!editing) throw new Error("No Client PO is being edited");
+      return operationsApi.deleteAttachment(moduleKey, editing.id, attachment.id);
+    },
+    onSuccess: async (_, attachment) => {
+      setExistingAttachments(current => current.filter(item => item.id !== attachment.id));
+      setDeletingAttachment(null);
+      await queryClient.invalidateQueries({ queryKey: ["client-po-detail", moduleKey] });
+      toastSuccess("Document deleted", attachment.original_filename);
+    },
+    onError: error => toastError("Unable to delete document", getErrorMessage(error)),
+  });
 
   function openCreate() {
     if (!module) return;
     setEditing(null);
+    setClientPOLoading(false);
     setForm(emptyForm(module));
+    setClientPO(emptyClientPOEditor());
+    setPendingAttachments([]);
+    setExistingAttachments([]);
     setFormOpen(true);
   }
 
-  function openEdit(record: OperationalRecord) {
+  async function openEdit(record: OperationalRecord) {
     setEditing(record);
+    setClientPOLoading(record.record_type === CLIENT_PO_TYPE);
     setForm(formFromRecord(record));
+    setClientPO(emptyClientPOEditor());
+    setPendingAttachments([]);
+    setExistingAttachments([]);
     setFormOpen(true);
+    if (record.record_type !== CLIENT_PO_TYPE) return;
+    try {
+      const detail = await operationsApi.clientPoDetail(moduleKey, record.id).then(response => response.data);
+      setClientPO(clientPOEditorFromDetail(detail));
+      setExistingAttachments(detail.attachments);
+    } catch (error) {
+      toastError("Unable to load Client PO details", getErrorMessage(error));
+      setFormOpen(false);
+      setEditing(null);
+    } finally {
+      setClientPOLoading(false);
+    }
+  }
+
+  function openAttachment(recordId: number, attachment: OperationalAttachment) {
+    openAuthenticatedFile(operationsApi.attachmentUrl(moduleKey, recordId, attachment.id)).catch(error => {
+      toastError("Unable to open document", getErrorMessage(error));
+    });
   }
 
   function submitForm(event: React.FormEvent) {
     event.preventDefault();
+    if (clientPOLoading) {
+      toastError("Client PO details are still loading", "Wait for the BOQ and payment schedule to finish loading");
+      return;
+    }
     if (!form.title.trim() || !form.record_type) {
       toastError("Required fields are missing", "Type and title must be completed");
       return;
     }
-    saveMutation.mutate(toPayload(form));
+    const payload = toPayload(form);
+    if (form.record_type === CLIENT_PO_TYPE) {
+      const dppAmount = Number(form.amount || 0);
+      const taxAmount = Number(form.details.tax_amount || 0);
+      payload.details = {
+        ...payload.details,
+        tax_amount: taxAmount,
+        grand_total: dppAmount + taxAmount,
+      };
+      if (!lockedEdit) {
+        payload.client_po = clientPOToInput(clientPO, dppAmount, taxAmount);
+      }
+    }
+    saveMutation.mutate(payload);
   }
 
   const records = recordsQuery.data?.items ?? [];
@@ -194,6 +290,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
 
   const summary = summaryQuery.data;
   const lockedEdit = !!editing && !["draft", "rejected"].includes(editing.status);
+  const isClientPOForm = form.record_type === CLIENT_PO_TYPE;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -311,11 +408,11 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
         onClose={() => { if (!saveMutation.isPending) setFormOpen(false); }}
         title={editing ? `Edit ${presentation.singular}` : `New ${presentation.singular}`}
         subtitle={lockedEdit ? "Identity and financial fields are locked after submission" : "Complete the operational record details"}
-        size="lg"
+        size={isClientPOForm ? "xl" : "lg"}
         footer={
           <>
             <Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saveMutation.isPending}>Cancel</Button>
-            <Button variant="primary" loading={saveMutation.isPending} onClick={() => document.getElementById("operational-record-submit")?.click()}>
+            <Button variant="primary" loading={saveMutation.isPending || clientPOLoading} onClick={() => document.getElementById("operational-record-submit")?.click()}>
               {editing ? "Save Changes" : "Create Record"}
             </Button>
           </>
@@ -323,7 +420,13 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
       >
         <form onSubmit={submitForm} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button id="operational-record-submit" type="submit" className="hidden" />
-          <Select label="Record Type" value={form.record_type} disabled={lockedEdit} onChange={event => setForm({ ...form, record_type: event.target.value })}>
+          <Select label="Record Type" value={form.record_type} disabled={lockedEdit} onChange={event => {
+            const recordType = event.target.value;
+            setForm({ ...form, record_type: recordType, details: {} });
+            setClientPO(emptyClientPOEditor());
+            setPendingAttachments([]);
+            setExistingAttachments([]);
+          }}>
             {Object.entries(module.record_types).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </Select>
           <Input label="Reference Number" placeholder="Generated automatically if blank" value={form.reference_no} disabled={lockedEdit} onChange={event => setForm({ ...form, reference_no: event.target.value })} />
@@ -334,7 +437,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
             {projects.map(project => <option key={project.id} value={project.id}>{project.code} - {project.name}</option>)}
           </Select>
           <Input label={presentation.partnerLabel} value={form.partner_name} disabled={lockedEdit} onChange={event => setForm({ ...form, partner_name: event.target.value })} />
-          <Input label={presentation.amountLabel} type="number" min="0" step="0.01" value={form.amount} disabled={lockedEdit} onChange={event => setForm({ ...form, amount: event.target.value })} />
+          <Input label={isClientPOForm ? "DPP / Base Amount" : presentation.amountLabel} type="number" min="0" step="0.01" value={form.amount} disabled={lockedEdit} onChange={event => setForm({ ...form, amount: event.target.value })} />
           <Select label="Currency" value={form.currency} disabled={lockedEdit} onChange={event => setForm({ ...form, currency: event.target.value })}>
             <option value="IDR">IDR</option><option value="USD">USD</option><option value="SGD">SGD</option>
           </Select>
@@ -343,7 +446,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
           <Select label="Priority" value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value as OperationalPriority })}>
             <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option>
           </Select>
-          {detailFields.map(field => (
+          {!isClientPOForm && detailFields.map(field => (
             <Input
               key={field.key}
               label={field.label}
@@ -352,6 +455,22 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
               onChange={event => setForm({ ...form, details: { ...form.details, [field.key]: event.target.value } })}
             />
           ))}
+          {isClientPOForm && (
+            <ClientPOEditor
+              details={form.details}
+              dppAmount={Number(form.amount || 0)}
+              currency={form.currency}
+              value={clientPO}
+              onDetailsChange={details => setForm({ ...form, details })}
+              onChange={setClientPO}
+              pendingFiles={pendingAttachments}
+              onPendingFilesChange={setPendingAttachments}
+              existingAttachments={existingAttachments}
+              onOpenAttachment={attachment => editing && openAttachment(editing.id, attachment)}
+              onDeleteAttachment={setDeletingAttachment}
+              disabled={lockedEdit || clientPOLoading}
+            />
+          )}
           <div className="sm:col-span-2">
             <Textarea label="Description / Notes" rows={4} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} />
           </div>
@@ -363,7 +482,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
         onClose={() => setViewing(null)}
         title={viewing?.reference_no ?? "Record Details"}
         subtitle={viewing ? module.record_types[viewing.record_type] ?? viewing.record_type : undefined}
-        size="lg"
+        size={viewing?.record_type === CLIENT_PO_TYPE ? "xl" : "lg"}
         footer={<Button variant="secondary" onClick={() => setViewing(null)}>Close</Button>}
       >
         {viewing && (
@@ -383,7 +502,21 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
               <p className="text-sm font-semibold text-[#0C2138]">{viewing.title}</p>
               {viewing.description && <p className="text-[12px] text-[#5E7186] leading-relaxed mt-2 whitespace-pre-wrap">{viewing.description}</p>}
             </div>
-            {Object.keys(viewing.details).length > 0 && (
+            {viewing.record_type === CLIENT_PO_TYPE ? (
+              <div>
+                <p className="text-[10px] font-bold tracking-[0.12em] uppercase text-[#94A3B8] mb-2">Client PO Details</p>
+                {viewingClientPOQuery.isError ? (
+                  <p className="text-[12px] text-red-600">{getErrorMessage(viewingClientPOQuery.error)}</p>
+                ) : (
+                  <ClientPODetailPanel
+                    detail={viewingClientPOQuery.data}
+                    details={viewing.details}
+                    currency={viewing.currency}
+                    onOpenAttachment={attachment => openAttachment(viewing.id, attachment)}
+                  />
+                )}
+              </div>
+            ) : Object.keys(viewing.details).length > 0 && (
               <div>
                 <p className="text-[10px] font-bold tracking-[0.12em] uppercase text-[#94A3B8] mb-2">Domain Details</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-lg border border-[#E7E5DF] p-4">
@@ -457,6 +590,16 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
         confirmLabel="Delete"
         danger
         loading={deleteMutation.isPending}
+      />
+      <ConfirmDialog
+        open={!!deletingAttachment}
+        onClose={() => setDeletingAttachment(null)}
+        onConfirm={() => { if (deletingAttachment) deleteAttachmentMutation.mutate(deletingAttachment); }}
+        title="Delete Document"
+        message={`Delete ${deletingAttachment?.original_filename ?? "this document"}? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        loading={deleteAttachmentMutation.isPending}
       />
     </div>
   );
