@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LocateFixed, Search } from "lucide-react";
+import { ExternalLink, LocateFixed, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { loadGooglePlaces, type SelectedPlace } from "@/lib/google-places";
+import { parseGoogleMapsCoordinates } from "./google-maps-coordinates";
 
 export interface LocationPoint {
   latitude: number;
@@ -22,98 +22,9 @@ function validPoint(latitude: number, longitude: number) {
     && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
 }
 
-function GoogleAddressSearch({ onChange }: Pick<Props, "onChange">) {
-  const container = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState("Memuat pencarian Google Maps…");
-  const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-  const configured = Boolean(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim());
-
-  useEffect(() => {
-    if (!configured) return;
-    let active = true;
-    let version = 0;
-    let widget: HTMLElement | undefined;
-    setError("");
-    setStatus("Memuat pencarian Google Maps…");
-
-    const invalidate = () => {
-      version += 1;
-      onChange(null);
-      setError("");
-      setStatus("");
-    };
-    const failed = () => {
-      version += 1;
-      onChange(null);
-      setStatus("");
-      setError("Pencarian Google Maps tidak tersedia. Coba lagi atau gunakan lokasi saat ini.");
-    };
-    const selected = async (event: Event) => {
-      const request = ++version;
-      onChange(null);
-      setError("");
-      setStatus("Mengambil lokasi…");
-      try {
-        const { placePrediction } = event as Event & {
-          placePrediction: { toPlace(): SelectedPlace };
-        };
-        const place = placePrediction.toPlace();
-        await place.fetchFields({ fields: ["displayName", "formattedAddress", "location"] });
-        if (!active || request !== version) return;
-        const latitude = place.location?.lat();
-        const longitude = place.location?.lng();
-        if (latitude === undefined || longitude === undefined || !validPoint(latitude, longitude)) {
-          throw new Error("Lokasi tidak memiliki titik yang valid. Pilih hasil lain.");
-        }
-        onChange({ latitude, longitude, label: place.formattedAddress || place.displayName || "Lokasi terpilih" });
-        setStatus("");
-      } catch {
-        if (active && request === version) failed();
-      }
-    };
-
-    loadGooglePlaces().then(({ PlaceAutocompleteElement }) => {
-      if (!active || !container.current) return;
-      widget = new PlaceAutocompleteElement({ includedRegionCodes: ["id"] });
-      widget.setAttribute("placeholder", "Cari nama kantor, site, atau alamat");
-      widget.setAttribute("aria-label", "Cari alamat di Google Maps");
-      widget.style.width = "100%";
-      widget.addEventListener("gmp-select", selected);
-      widget.addEventListener("gmp-error", failed);
-      widget.addEventListener("input", invalidate);
-      container.current.replaceChildren(widget);
-      setStatus("");
-    }).catch(() => { if (active) failed(); });
-    return () => {
-      active = false;
-      widget?.removeEventListener("gmp-select", selected);
-      widget?.removeEventListener("gmp-error", failed);
-      widget?.removeEventListener("input", invalidate);
-      widget?.remove();
-    };
-  }, [attempt, configured, onChange]);
-
-  if (!configured) return (
-    <p className="text-sm text-amber-700" role="status">
-      Pencarian Google Maps belum diaktifkan. Gunakan lokasi saat ini atau hubungi administrator.
-    </p>
-  );
-  return (
-    <div className="space-y-2">
-      <div ref={container} />
-      <p className="text-xs text-gray-500">Ketik alamat lalu pilih salah satu hasil Google Maps.</p>
-      {status && <p className="text-xs text-gray-500" role="status">{status}</p>}
-      {error && <div role="alert" className="space-y-2 text-xs text-red-600">
-        <p>{error}</p>
-        <Button type="button" size="sm" onClick={() => { onChange(null); setAttempt(value => value + 1); }}>Coba lagi</Button>
-      </div>}
-    </div>
-  );
-}
-
 export function WorkLocationPicker({ onChange, disabled = false }: Props) {
-  const [mode, setMode] = useState<"current" | "search">("current");
+  const [mode, setMode] = useState<"current" | "paste">("current");
+  const [mapsInput, setMapsInput] = useState("");
   const [point, setPoint] = useState<LocationPoint | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -160,13 +71,13 @@ export function WorkLocationPicker({ onChange, disabled = false }: Props) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {([
           ["current", "Lokasi saat ini", LocateFixed],
-          ["search", "Cari alamat di Google Maps", Search],
+          ["paste", "Tempel titik Google Maps", MapPin],
         ] as const).map(([value, label, Icon]) => (
           <label key={value} className={`flex items-center gap-2 border rounded-lg p-3 text-xs cursor-pointer ${mode === value ? "border-teal-600 bg-teal-50 text-teal-800" : "border-gray-200 text-gray-600"}`}>
             <input type="radio" name="work-location-source" value={value} checked={mode === value}
               onChange={() => {
                 requestId.current += 1;
-                setMode(value); setPoint(null); onChange(null); setError(""); setBusy(false);
+                setMode(value); setMapsInput(""); setPoint(null); onChange(null); setError(""); setBusy(false);
               }} />
             <Icon size={16} aria-hidden="true" />{label}
           </label>
@@ -184,7 +95,43 @@ export function WorkLocationPicker({ onChange, disabled = false }: Props) {
             <p>Periksa titik pada peta sebelum menyimpan, terutama jika akurasi lebih besar dari radius absensi.</p>
           </div>}
         </div>
-      ) : <GoogleAddressSearch onChange={onChange} />}
+      ) : (
+        <div className="space-y-3">
+          <a href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 underline">
+            <ExternalLink size={14} aria-hidden="true" />Buka Google Maps
+          </a>
+          <p id="maps-point-help" className="text-xs text-gray-500">
+            Cari kantor atau site, klik kanan titik yang tepat, lalu klik angka koordinat paling atas untuk menyalinnya. Tempel hasilnya di bawah.
+          </p>
+          <div>
+            <label htmlFor="maps-point-input" className="block text-xs font-medium text-gray-600 mb-1">
+              Koordinat atau link titik Google Maps
+            </label>
+            <textarea id="maps-point-input" rows={2} value={mapsInput}
+              aria-describedby={`maps-point-help${error ? " maps-point-error" : ""}`}
+              aria-invalid={Boolean(error)}
+              placeholder="1.999191006171762, 117.73438784788873"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+              onChange={event => {
+                const value = event.target.value;
+                setMapsInput(value);
+                setPoint(null);
+                onChange(null);
+                setError("");
+                if (!value.trim()) return;
+                const result = parseGoogleMapsCoordinates(value);
+                if (!result.point) { setError(result.error); return; }
+                const next = { ...result.point, label: "Titik dari Google Maps" };
+                setPoint(next);
+                onChange(next);
+              }} />
+            <p className="text-xs text-gray-500 mt-1">Tempel kedua angka sekaligus, dipisahkan koma. Link pendek perlu dibuka dahulu untuk menyalin koordinatnya.</p>
+          </div>
+          {error && <p id="maps-point-error" role="alert" className="text-xs text-red-600">{error}</p>}
+          {point && <p role="status" className="text-xs text-teal-700">Titik berhasil dibaca. Periksa tautan peta di bawah sebelum menyimpan.</p>}
+        </div>
+      )}
     </fieldset>
   );
 }
