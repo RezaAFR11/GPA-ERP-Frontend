@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
@@ -14,6 +14,7 @@ import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import type { WorkLocation } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WorkLocationPicker, type LocationPoint } from "./work-location-picker";
 
 type LocationSortKey = "name" | "type" | "coordinates" | "timezone" | "radius" | "status";
 
@@ -26,11 +27,16 @@ const TIMEZONES = [
 export function WorkLocationsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [selectedPoint, setSelectedPoint] = useState<LocationPoint | null>(null);
+  const selectPoint = useCallback((point: LocationPoint | null) => setSelectedPoint(point), []);
   const [form, setForm] = useState({
-    name: "", location_type: "home_office", latitude: "", longitude: "",
+    name: "", location_type: "home_office",
     radius_meters: "200", timezone_name: "Asia/Jakarta",
   });
   const tableSort = useTableSort<LocationSortKey>("name", "asc");
+  const radius = Number(form.radius_meters);
+  const canSave = Boolean(form.name.trim() && selectedPoint)
+    && Number.isInteger(radius) && radius >= 10 && radius <= 50000;
 
   const { data: locations = [], isLoading } = useQuery({
     queryKey: ["hris", "work-locations"],
@@ -46,20 +52,24 @@ export function WorkLocationsTab() {
   });
 
   const createMut = useMutation({
-    mutationFn: () => hrisWorkLocationApi.create({
-      name: form.name,
-      location_type: form.location_type as WorkLocation["location_type"],
-      latitude: parseFloat(form.latitude),
-      longitude: parseFloat(form.longitude),
-      radius_meters: parseInt(form.radius_meters),
-      timezone_name: form.timezone_name,
-    }),
+    mutationFn: () => {
+      if (!canSave || !selectedPoint) throw new Error("Pilih lokasi dan isi radius 10–50.000 meter.");
+      return hrisWorkLocationApi.create({
+        name: form.name.trim(),
+        location_type: form.location_type as WorkLocation["location_type"],
+        latitude: selectedPoint.latitude,
+        longitude: selectedPoint.longitude,
+        radius_meters: radius,
+        timezone_name: form.timezone_name,
+      });
+    },
     onSuccess: () => {
       toastSuccess("Lokasi berhasil ditambahkan");
       qc.invalidateQueries({ queryKey: ["hris", "work-locations"] });
       setShowAdd(false);
+      setSelectedPoint(null);
       setForm({
-        name: "", location_type: "home_office", latitude: "", longitude: "",
+        name: "", location_type: "home_office",
         radius_meters: "200", timezone_name: "Asia/Jakarta",
       });
     },
@@ -82,7 +92,7 @@ export function WorkLocationsTab() {
         <p className="text-sm text-gray-500">Titik lokasi kerja yang valid untuk clock-in berbasis GPS</p>
         <Button size="sm" variant="primary" icon={<Plus size={13} />}
           className="bg-teal-700 hover:bg-teal-600 border-teal-700"
-          onClick={() => setShowAdd(true)}>Tambah Lokasi</Button>
+          onClick={() => { setSelectedPoint(null); setShowAdd(true); }}>Tambah Lokasi</Button>
       </div>
 
       {isLoading ? (
@@ -144,7 +154,7 @@ export function WorkLocationsTab() {
         </table>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Tambah Lokasi Kerja">
+      <Modal open={showAdd} onClose={() => { if (!createMut.isPending) setShowAdd(false); }} title="Tambah Lokasi Kerja">
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Nama Lokasi</label>
@@ -160,22 +170,21 @@ export function WorkLocationsTab() {
               <option value="other">Lainnya</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Latitude</label>
-              <input type="number" step="any" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={form.latitude} onChange={e => setForm(f => ({...f, latitude: e.target.value}))} placeholder="-6.12345" />
+          {showAdd && <WorkLocationPicker onChange={selectPoint} disabled={createMut.isPending} />}
+          {selectedPoint && (
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 space-y-1" role="status">
+              <p className="text-xs font-medium text-teal-900">{selectedPoint.label}</p>
+              <a href={`https://www.google.com/maps/search/?api=1&query=${selectedPoint.latitude},${selectedPoint.longitude}`}
+                target="_blank" rel="noopener noreferrer" className="text-xs text-teal-700 underline">
+                Lihat titik di Google Maps
+              </a>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Longitude</label>
-              <input type="number" step="any" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-                value={form.longitude} onChange={e => setForm(f => ({...f, longitude: e.target.value}))} placeholder="106.12345" />
-            </div>
-          </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Radius (meter)</label>
-            <input type="number" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+            <input type="number" min="10" max="50000" step="1" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               value={form.radius_meters} onChange={e => setForm(f => ({...f, radius_meters: e.target.value}))} />
+            <p className="text-xs text-gray-500 mt-1">Jarak maksimal pegawai dari titik lokasi saat absensi (10–50.000 meter).</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Zona Waktu</label>
@@ -190,8 +199,8 @@ export function WorkLocationsTab() {
             </select>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button size="sm" onClick={() => setShowAdd(false)}>Batal</Button>
-            <Button variant="primary" size="sm" loading={createMut.isPending}
+            <Button size="sm" disabled={createMut.isPending} onClick={() => setShowAdd(false)}>Batal</Button>
+            <Button variant="primary" size="sm" loading={createMut.isPending} disabled={!canSave}
               className="bg-teal-700 hover:bg-teal-600 border-teal-700"
               onClick={() => createMut.mutate()}>Simpan</Button>
           </div>

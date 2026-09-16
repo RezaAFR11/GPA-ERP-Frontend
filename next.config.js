@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const MAPS_ENABLED = Boolean(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim());
+// Google Maps' documented allowlist CSP requires eval for its JavaScript SDK.
+// Keep these permissions disabled when address search is not configured.
+const MAPS_SCRIPT_SOURCES = MAPS_ENABLED
+  ? " https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.ggpht.com https://*.googleusercontent.com blob:"
+  : '';
+const MAPS_CONNECT_SOURCES = MAPS_ENABLED
+  ? ' https://*.googleapis.com https://*.gstatic.com https://*.google.com data: blob:'
+  : '';
 const configuredApiUrl = (process.env.NEXT_PUBLIC_API_URL || '').trim();
 
 if (IS_PRODUCTION && !configuredApiUrl) {
@@ -60,12 +69,13 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${IS_PRODUCTION ? '' : " 'unsafe-eval'"}`,
+      `script-src 'self' 'unsafe-inline'${MAPS_SCRIPT_SOURCES}${IS_PRODUCTION && !MAPS_ENABLED ? '' : " 'unsafe-eval'"}`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       `img-src 'self' data: blob: https: ${API_ORIGIN}`,
       "font-src 'self' https://fonts.gstatic.com",
       // connect-src: derived from NEXT_PUBLIC_API_URL so it works locally and on Railway
-      `connect-src 'self' ${IS_PRODUCTION ? '' : 'ws: wss: http://localhost:8000 ws://localhost:3000'} ${API_ORIGIN}`,
+      `connect-src 'self'${MAPS_CONNECT_SOURCES} ${IS_PRODUCTION ? '' : 'ws: wss: http://localhost:8000 ws://localhost:3000'} ${API_ORIGIN}`,
+      ...(MAPS_ENABLED ? ["frame-src https://*.google.com", "worker-src 'self' blob:"] : []),
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
