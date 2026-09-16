@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, IdCard, KeyRound, Pencil, Plus, X } from "lucide-react";
+import { Copy, Eye, EyeOff, IdCard, KeyRound, Pencil, Plus, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { hrisEmployeesApi, usersApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -137,6 +137,7 @@ export function UsersTab() {
   const { user: currentUser } = useAuth();
   const [toast,      setToast]    = useState<{ msg: string; ok: boolean } | null>(null);
   const [showForm,   setShowForm] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
   const [resetResult, setResetResult] = useState<{ name: string; password: string } | null>(null);
   const [newUser,    setNewUser]  = useState<UserCreate>({
@@ -216,6 +217,7 @@ export function UsersTab() {
       qc.invalidateQueries({ queryKey: ["users"] });
       showToast("User created", true);
       setShowForm(false);
+      setShowPassword(false);
       setNewUser({ email: "", password: "", full_name: "", role_id: defaultRoleId });
     },
     onError: (e) => showToast(getErrorMessage(e), false),
@@ -279,6 +281,7 @@ export function UsersTab() {
           Showing {users.length} of {userSummary?.total ?? users.length} users
         </p>
         <Button size="sm" icon={<Plus size={13} />} onClick={() => {
+          setShowPassword(false);
           setNewUser((current) => ({
             ...current,
             role_id: current.role_id || defaultRoleId,
@@ -311,14 +314,28 @@ export function UsersTab() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Password *</label>
-              <input
-                type="password"
-                value={newUser.password}
-                onChange={(e) => setNewUser((f) => ({ ...f, password: e.target.value }))}
-                placeholder="Min 8 chars, 1 uppercase, 1 digit"
-                className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
+              <label htmlFor="new-user-password" className="block text-xs text-gray-500 mb-1">Password *</label>
+              <div className="relative">
+                <input
+                  id="new-user-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="Min 8 chars, 1 uppercase, 1 digit"
+                  className="w-full border border-gray-200 rounded-lg pl-2.5 pr-10 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-controls="new-user-password"
+                  title={showPassword ? "Hide password" : "Show password"}
+                  className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-lg text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  {showPassword ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Role *</label>
@@ -334,7 +351,7 @@ export function UsersTab() {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowForm(false); setShowPassword(false); }}>Cancel</Button>
             <Button
               variant="primary" size="sm"
               onClick={() => createUser.mutate()}
