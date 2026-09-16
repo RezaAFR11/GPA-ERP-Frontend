@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Eye, EyeOff, IdCard, KeyRound, Pencil, Plus, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { hrisEmployeesApi, usersApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/modal";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import type { RoleName, User as UserType, UserCreate } from "@/lib/types";
@@ -139,6 +141,7 @@ export function UsersTab() {
   const [showForm,   setShowForm] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
+  const [employeeUser, setEmployeeUser] = useState<UserType | null>(null);
   const [resetResult, setResetResult] = useState<{ name: string; password: string } | null>(null);
   const [newUser,    setNewUser]  = useState<UserCreate>({
     email: "", password: "", full_name: "", role_id: 0,
@@ -206,7 +209,8 @@ export function UsersTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
       qc.invalidateQueries({ queryKey: ["hris", "employees"] });
-      showToast("Data pegawai dibuat & ditautkan", true);
+      setEmployeeUser(null);
+      showToast("Employee record linked successfully", true);
     },
     onError: (e) => showToast(getErrorMessage(e), false),
   });
@@ -226,6 +230,21 @@ export function UsersTab() {
   return (
     <div className="space-y-4">
       {toast && <Toast {...toast} />}
+
+      {employeeUser && createPortal(
+        <ConfirmDialog
+          open
+          title="Create Employee Record"
+          message={`Create and link an employee record for ${employeeUser.full_name}? If an unlinked employee record has the same email address, it will be linked instead. You can complete the employee details in HRIS afterward.`}
+          confirmLabel="Create Employee"
+          loading={createEmployee.isPending}
+          onClose={() => { if (!createEmployee.isPending) setEmployeeUser(null); }}
+          onConfirm={() => {
+            if (!createEmployee.isPending) createEmployee.mutate(employeeUser.id);
+          }}
+        />,
+        document.body,
+      )}
 
       {/* Edit modal */}
       {editingUser && (
@@ -446,16 +465,13 @@ export function UsersTab() {
                         </button>}
                         {!u.employee_id && (
                           <button
-                            onClick={() => {
-                              if (confirm(`Create a linked employee (pegawai) record for ${u.full_name}? You can complete the details in Data Karyawan.`))
-                                createEmployee.mutate(u.id);
-                            }}
+                            onClick={() => setEmployeeUser(u)}
                             disabled={createEmployee.isPending}
                             className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-teal-600 font-medium transition-colors disabled:opacity-50"
                             title="Create linked employee record"
                           >
                             <IdCard size={11} />
-                            Buat Pegawai
+                            Create Employee
                           </button>
                         )}
                         {u.is_active && u.id !== currentUser?.id && (
