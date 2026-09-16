@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { hrisEmployeesApi, hrisDepartmentsApi, hrisJobGradesApi, hrisWorkLocationApi, hrisDataChangeApi } from "@/lib/api";
+import { hrisEmployeesApi, hrisDepartmentsApi, hrisJobGradesApi, hrisDataChangeApi } from "@/lib/api";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { useRole } from "@/lib/auth-context";
 import { cn, fmtDate } from "@/lib/utils";
@@ -76,7 +76,6 @@ type EditForm = {
   status: string;
   dept_id: string;
   grade_id: string;
-  work_location_id: string;
   join_date: string;
   end_date: string;
   bank_name: string;
@@ -98,7 +97,6 @@ function empToForm(d: Employee): EditForm {
     status:           d.status ?? "active",
     dept_id:          d.dept_id != null ? String(d.dept_id) : "",
     grade_id:         d.grade_id != null ? String(d.grade_id) : "",
-    work_location_id: (d as any).work_location_id != null ? String((d as any).work_location_id) : "",
     join_date:        d.join_date ? d.join_date.slice(0, 10) : "",
     end_date:         d.end_date ? d.end_date.slice(0, 10) : "",
     bank_name:        d.bank_name ?? "",
@@ -255,12 +253,6 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
     enabled:  open && canEdit,
   });
 
-  const { data: workLocations = [] } = useQuery({
-    queryKey: ["hris", "work-locations"],
-    queryFn:  () => hrisWorkLocationApi.list().then((r) => r.data),
-    enabled:  open && canEdit,
-  });
-
   const { data: dataChanges = [], isLoading: dcLoad } = useQuery<EmployeeDataChangeRequest[]>({
     queryKey: ["hris", "data-change-requests", emp.id],
     queryFn: () => hrisDataChangeApi.list({ employee_id: emp.id }).then(r => r.data),
@@ -346,7 +338,6 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
       status:       form.status       || null,
       dept_id:      form.dept_id      ? Number(form.dept_id)          : null,
       grade_id:     form.grade_id     ? Number(form.grade_id)         : null,
-      work_location_id: form.work_location_id ? Number(form.work_location_id) : null,
       join_date:    form.join_date    || null,
       end_date:     form.end_date     || null,
       bank_name:    form.bank_name    || null,
@@ -465,7 +456,6 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
               onCreated={() => qc.invalidateQueries({ queryKey: ["hris", "employees"] })}
             />
           )}
-          <InfoRow label="Lokasi Absensi"  value={(d as any).work_location?.name ?? null} />
           <p className="text-[10px] font-semibold tracking-widest text-teal-600 uppercase mb-2 mt-5">BPJS & Bank</p>
           <InfoRow label="BPJS TK No."  value={d.bpjs_tk_no} />
           <InfoRow label="BPJS Kes No." value={d.bpjs_kes_no} />
@@ -532,19 +522,6 @@ export default function EmployeeDetailModal({ open, onClose, employee: emp }: Pr
                 <option key={g.id} value={g.id}>{g.name} (L{g.level})</option>
               ))}
             </select>
-          </FormRow>
-          <FormRow label="Lokasi Absensi">
-            <select className={SELECT_CLS} value={form.work_location_id} onChange={(e) => set("work_location_id", e.target.value)}>
-              <option value="">— Semua lokasi aktif —</option>
-              {workLocations.map((wl) => (
-                <option key={wl.id} value={wl.id}>
-                  {wl.name} ({wl.location_type === "home_office" ? "HO" : wl.location_type === "site" ? "Site" : "Lainnya"} · r={wl.radius_meters}m)
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Menentukan lokasi GPS yang divalidasi saat clock-in. Kosong = cek semua lokasi aktif.
-            </p>
           </FormRow>
           <FormRow label="Tanggal Masuk">
             <input className={INPUT_CLS} type="date" value={form.join_date} onChange={(e) => set("join_date", e.target.value)} />

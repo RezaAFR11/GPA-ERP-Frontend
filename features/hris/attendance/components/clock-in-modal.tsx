@@ -39,6 +39,7 @@ export default function ClockInModal({
   const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const geoRequestRef = useRef(0);
 
   const [step, setStep]             = useState<Step>(isClockin ? "geo" : "submitting");
   const [geo, setGeo]               = useState<{ lat: number; lon: number; acc: number } | null>(null);
@@ -51,24 +52,29 @@ export default function ClockInModal({
 
   /* reset when opened or mode changes */
   useEffect(() => {
-    if (!isOpen) { stopCamera(); return; }
+    if (!isOpen) { geoRequestRef.current += 1; stopCamera(); return; }
     setStep(isClockin ? "geo" : "submitting");
     setGeo(null); setGeoError(null);
     setSelfieBlob(null); setSelfieUrl(null);
     setResult(null); setErrMsg(null); setNote("");
     if (isClockin) requestGeo();
     else submitClockOut();           // clock-out: no GPS, no camera, submit immediately
+    return () => { geoRequestRef.current += 1; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, mode]);
 
   /* ── Geolocation ─────────────────────────────────────────────────────────── */
   function requestGeo() {
+    const requestId = ++geoRequestRef.current;
+    setGeo(null);
+    setGeoError(null);
     if (!navigator.geolocation) {
       setGeoError("Geolocation tidak didukung perangkat ini");
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (requestId !== geoRequestRef.current) return;
         setGeo({
           lat: pos.coords.latitude,
           lon: pos.coords.longitude,
@@ -77,7 +83,8 @@ export default function ClockInModal({
         setGeoError(null);
       },
       (err) => {
-        setGeoError(`GPS error: ${err.message}. Anda tetap bisa clock-in tanpa lokasi.`);
+        if (requestId !== geoRequestRef.current) return;
+        setGeoError(`Lokasi GPS belum tersedia: ${err.message}. Izinkan akses lokasi lalu coba lagi sebelum clock-in.`);
       },
       {
         timeout: 10000,
@@ -134,6 +141,11 @@ export default function ClockInModal({
 
   /* ── Submit clock-in ─────────────────────────────────────────────────────── */
   async function submitClockIn() {
+    if (!geo) {
+      setStep("geo");
+      setGeoError("Lokasi GPS wajib tersedia sebelum clock-in. Silakan ambil ulang lokasi.");
+      return;
+    }
     setStep("submitting");
     try {
       const selfieFile = selfieBlob
@@ -212,11 +224,12 @@ export default function ClockInModal({
                 <Loader2 size={12} className="animate-spin" /> Mendapatkan lokasi…
               </p>
             )}
-            {geoError && (
+            {(geo || geoError) && (
               <button onClick={requestGeo} className="text-xs text-teal-600 underline">
-                Coba lagi
+                {geo ? "Perbarui lokasi GPS" : "Coba lagi"}
               </button>
             )}
+            <p className="text-xs text-gray-500">Absensi hanya dapat dilakukan di dalam radius salah satu lokasi kerja aktif (HO/site).</p>
           </div>
 
           <div>
@@ -231,7 +244,7 @@ export default function ClockInModal({
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>Batal</Button>
-            <Button onClick={startCamera} className="bg-teal-600 hover:bg-teal-700 text-white">
+            <Button onClick={startCamera} disabled={!geo} className="bg-teal-600 hover:bg-teal-700 text-white">
               <Camera size={14} className="mr-1.5" /> Buka Kamera
             </Button>
           </div>
@@ -370,13 +383,16 @@ export default function ClockInModal({
         <div className="flex flex-col items-center text-center py-8 gap-4">
           <XCircle size={48} className="text-red-400" />
           <div>
-            <p className="text-lg font-bold text-gray-900">Terjadi Kesalahan</p>
+            <p className="text-lg font-bold text-gray-900">{isClockin ? "Absen Gagal" : "Terjadi Kesalahan"}</p>
             <p className="text-sm text-red-500 mt-1">{errMsg}</p>
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Tutup</Button>
             <Button
-              onClick={() => isClockin ? setStep("geo") : submitClockOut()}
+              onClick={() => {
+                if (isClockin) { setStep("geo"); requestGeo(); }
+                else submitClockOut();
+              }}
               className="bg-teal-600 hover:bg-teal-700 text-white"
             >
               Coba Lagi
