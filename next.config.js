@@ -83,11 +83,28 @@ if (IS_PRODUCTION) {
 const nextConfig = {
   output: 'standalone',   // required for Docker multi-stage build
   images: { domains: [] },
+  async rewrites() {
+    return {
+      // Keep local routes such as /api/health available before proxying.
+      afterFiles: [
+        { source: '/api/:path*', destination: `${API_URL.replace(/\/$/, '')}/:path*` },
+        { source: '/uploads/:path*', destination: `${API_ORIGIN}/uploads/:path*` },
+      ],
+    };
+  },
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: securityHeaders,
+      },
+      {
+        source: '/api/:path*',
+        headers: [{ key: 'Cache-Control', value: 'private, no-store' }],
+      },
+      {
+        source: '/uploads/:path*',
+        headers: [{ key: 'Cache-Control', value: 'private, no-store' }],
       },
     ];
   },

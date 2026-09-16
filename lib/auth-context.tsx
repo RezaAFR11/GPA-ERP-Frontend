@@ -1,7 +1,7 @@
 "use client";
 
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from "react";
 import { authApi } from "./api";
 import type { AppMenuPermission, RoleName, User } from "./types";
@@ -25,6 +25,7 @@ interface AuthContextValue extends AuthState {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const sessionRequest = useRef(0);
   const [state, setState] = useState<AuthState>({
     user: null,
     allowedMenuKeys: [],
@@ -34,11 +35,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const loadUser = useCallback(async () => {
+    const request = ++sessionRequest.current;
     try {
       const [{ data: user }, { data: menuPermissions }] = await Promise.all([
         authApi.me(),
         authApi.menuPermissions(),
       ]);
+      if (request !== sessionRequest.current) return false;
       setState({
         user,
         allowedMenuKeys: menuPermissions.allowed_keys,
@@ -46,7 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading: false,
         isAuthenticated: true,
       });
+      return true;
     } catch {
+      if (request !== sessionRequest.current) return false;
       setState({
         user: null,
         allowedMenuKeys: [],
@@ -54,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading: false,
         isAuthenticated: false,
       });
+      return false;
     }
   }, []);
 
@@ -63,11 +69,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadUser]);
 
   const login = useCallback(async (email: string, password: string) => {
+    // Ignore any session restoration request still running before this login.
+    ++sessionRequest.current;
     await authApi.login(email, password);
-    await loadUser();
+    if (!(await loadUser())) {
+      throw new Error("Unable to load your login session. Please try again. If the problem persists, contact your administrator.");
+    }
   }, [loadUser]);
 
   const logout = useCallback(async () => {
+    ++sessionRequest.current;
     try {
       await authApi.logout();
     } catch {

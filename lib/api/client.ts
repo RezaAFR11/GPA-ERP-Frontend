@@ -1,8 +1,11 @@
 import axios from "axios";
 
-export const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
-const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
+// Browser requests stay on the frontend origin so the HttpOnly session cookie
+// also works in browsers that block third-party cookies.
+export const BASE_URL = "/api";
+const upstreamApi = new URL(
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api",
+);
 
 export interface TableSortParams {
   sort_by?: string;
@@ -17,10 +20,20 @@ export const api = axios.create({
 
 export const authenticatedFilesApi = {
   fetch: (fileUrl: string) => {
-    const url = fileUrl.startsWith("http")
-      ? fileUrl
-      : `${BACKEND_ORIGIN}/${fileUrl.replace(/^\/+/, "")}`;
-    return api.get<Blob>(url, { responseType: "blob" });
+    let url = `/${fileUrl.replace(/^\/+/, "")}`;
+    if (/^https?:\/\//i.test(fileUrl)) {
+      const parsed = new URL(fileUrl);
+      const apiPath = upstreamApi.pathname.replace(/\/$/, "");
+      if (parsed.origin === upstreamApi.origin && parsed.pathname.startsWith(`${apiPath}/`)) {
+        url = `/api${parsed.pathname.slice(apiPath.length)}${parsed.search}`;
+      } else if (parsed.origin === upstreamApi.origin && parsed.pathname.startsWith("/uploads/")) {
+        url = `${parsed.pathname}${parsed.search}`;
+      } else {
+        url = fileUrl;
+      }
+    }
+    // These paths already include /api or /uploads; don't prepend baseURL.
+    return api.get<Blob>(url, { baseURL: "", responseType: "blob" });
   },
 };
 
