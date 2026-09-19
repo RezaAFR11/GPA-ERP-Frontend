@@ -10,7 +10,9 @@ export interface Schedule {
   grace_minutes: number; reminder_minutes: number;
 }
 export interface Assignment {
-  id: number; employee_name: string; date: string; snapshot: Schedule;
+  id: number; employee_name: string; employee_id: number; snapshot: Schedule;
+  shift_id: number; work_location_id: number; weekdays: number[];
+  effective_from: string; is_active: boolean;
 }
 export interface UnresolvedAttendance {
   id: number; date: string; clock_in: string; auto_closed_at: string;
@@ -35,12 +37,11 @@ export const schedulingApi = {
   shifts: () => api.get<Shift[]>(`${root}/shifts`),
   saveShift: (data: Omit<Shift, "id">, id?: number) => id
     ? api.put<Shift>(`${root}/shifts/${id}`, data) : api.post<Shift>(`${root}/shifts`, data),
-  assignments: (start_date: string, end_date: string, employee_id?: number) =>
-    api.get<Assignment[]>(`${root}/assignments`, { params: { start_date, end_date, employee_id } }),
+  assignments: () => api.get<Assignment[]>(`${root}/weekly-schedules`),
   assign: (data: { employee_ids: number[]; work_group_id?: number; shift_id: number;
-    work_location_id: number; start_date: string; end_date: string; weekdays: number[]; replace_existing: boolean }) =>
-    api.post<{ assigned: number }>(`${root}/assignments`, data),
-  cancel: (id: number) => api.delete(`${root}/assignments/${id}`),
+    work_location_id: number; weekdays: number[] }) =>
+    api.post<{ assigned: number; preserved_sessions: number }>(`${root}/weekly-schedules`, data),
+  cancel: (id: number) => api.delete(`${root}/weekly-schedules/${id}`),
   mine: () => api.get<MySchedule>(`${root}/me`),
   clarify: (id: number, data: { reason: string; actual_clock_out: string; note: string }) =>
     api.post(`${root}/attendance/${id}/clarifications`, data),
