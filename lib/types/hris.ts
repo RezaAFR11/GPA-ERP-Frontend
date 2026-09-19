@@ -139,6 +139,12 @@ export interface WorkLocation {
 }
 
 export interface AttendanceRecord {
+  schedule_snapshot?: import("../api/scheduling").Schedule | null;
+  auto_closed_at?: string | null;
+  auto_close_at?: string | null;
+  clarification_status?: string | null;
+  late_minutes?: number;
+  beyond_grace_minutes?: number;
   id: number;
   employee_id: number;
   employee?: Pick<Employee, "id" | "employee_no" | "full_name">;
@@ -466,6 +472,12 @@ export interface MyProfile {
 }
 
 export interface MyAttendanceRecord {
+  schedule_snapshot?: import("../api/scheduling").Schedule | null;
+  auto_closed_at?: string | null;
+  auto_close_at?: string | null;
+  clarification_status?: string | null;
+  late_minutes?: number;
+  beyond_grace_minutes?: number;
   id: number;
   date: string;
   clock_in: string | null;

@@ -1,4 +1,6 @@
 "use client";
+import { SchedulePanel } from "./schedule-panel";
+import { clarificationLabels } from "@/lib/api/scheduling";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CheckCircle2, Clock, MapPin, Camera } from "lucide-react";
@@ -19,9 +21,9 @@ const MONTH_NAMES = [
 ];
 const DAY_SHORT = ["Min","Sen","Sel","Rab","Kam","Jum","Sab"];
 
-function formatTime(iso: string | null | undefined) {
+function formatTime(iso: string | null | undefined, zone?: string) {
   if (!iso) return "–";
-  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: zone });
 }
 
 function totalHours(r: { hours_regular: number; hours_overtime_weekday: number; hours_overtime_weekend: number; hours_overtime_holiday: number }) {
@@ -38,6 +40,7 @@ export default function MyAttendancePage() {
   const { data, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["hris-me-attendance", year, month],
     queryFn: () => hrisMeApi.getAttendance(year, month).then((r) => r.data),
+    refetchInterval: 30000,
   });
 
   const clockState  = data?.clock_state ?? "not_clocked_in";
@@ -99,6 +102,7 @@ export default function MyAttendancePage() {
         </div>
       </div>
 
+      <SchedulePanel />
       {/* Today Card */}
       <Card className={cn(
         "border-2",
@@ -115,11 +119,11 @@ export default function MyAttendancePage() {
           <div className="flex gap-6">
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Masuk</p>
-              <p className="text-base font-bold text-gray-900">{formatTime(todayRecord?.clock_in)}</p>
+              <p className="text-base font-bold text-gray-900">{formatTime(todayRecord?.clock_in, todayRecord?.schedule_snapshot?.timezone)}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Keluar</p>
-              <p className="text-base font-bold text-gray-900">{formatTime(todayRecord?.clock_out)}</p>
+              <p className="text-base font-bold text-gray-900">{formatTime(todayRecord?.clock_out, todayRecord?.schedule_snapshot?.timezone)}</p>
             </div>
             {todayRecord && (
               <div>
@@ -129,6 +133,8 @@ export default function MyAttendancePage() {
             )}
           </div>
           {/* Selfie thumbnail */}
+          {todayRecord?.clarification_status && <p className="text-sm text-amber-700 mt-2">{clarificationLabels[todayRecord.clarification_status]}</p>}
+          {(todayRecord?.beyond_grace_minutes ?? 0) > 0 && <p className="text-sm text-amber-700">Terlambat {todayRecord?.late_minutes} menit ({todayRecord?.beyond_grace_minutes} menit di luar toleransi).</p>}
           {todayRecord?.selfie_url && (
             <div className="mt-2 flex items-center gap-2">
               <button onClick={() => setSelfieRec(todayRecord)} className="group">
@@ -237,14 +243,15 @@ export default function MyAttendancePage() {
                   <p className="text-sm font-semibold text-gray-800">
                     {new Date(`${rec.date}T00:00:00`).toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" })}
                   </p>
+                  <p className="text-xs text-amber-700">{rec.clarification_status && clarificationLabels[rec.clarification_status]}{(rec.beyond_grace_minutes ?? 0) > 0 && ` · Terlambat ${rec.late_minutes} menit (${rec.beyond_grace_minutes} menit di luar toleransi)`}</p>
                   <div className="flex gap-4 mt-1">
                     <div>
                       <p className="text-[10px] text-gray-400">Masuk</p>
-                      <p className="text-xs font-medium">{formatTime(rec.clock_in)}</p>
+                      <p className="text-xs font-medium">{formatTime(rec.clock_in, rec.schedule_snapshot?.timezone)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-400">Keluar</p>
-                      <p className="text-xs font-medium">{formatTime(rec.clock_out)}</p>
+                      <p className="text-xs font-medium">{formatTime(rec.clock_out, rec.schedule_snapshot?.timezone)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-400">Jam Kerja</p>

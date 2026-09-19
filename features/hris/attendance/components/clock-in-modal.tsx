@@ -334,9 +334,9 @@ export default function ClockInModal({
             </p>
             <p className="text-sm text-gray-500 mt-1">
               {isClockin
-                ? new Date(result.clock_in!).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
+                ? new Date(result.clock_in!).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: result.schedule_snapshot?.timezone })
                 : result.clock_out
-                  ? new Date(result.clock_out).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
+                  ? new Date(result.clock_out).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: result.schedule_snapshot?.timezone })
                   : "—"
               }
               {isClockin && (
@@ -354,6 +354,8 @@ export default function ClockInModal({
                 </>
               )}
             </p>
+            {result.schedule_snapshot && <p className="text-xs text-gray-500">{result.schedule_snapshot.shift_name} · {result.schedule_snapshot.timezone}</p>}
+            {(result.beyond_grace_minutes ?? 0) > 0 && <p className="text-sm text-amber-700">Terlambat {result.late_minutes} menit ({result.beyond_grace_minutes} menit di luar toleransi).</p>}
             {result.latitude && result.longitude && (
               <p className="text-xs text-gray-400 mt-1 font-mono">
                 {fmtCoords(Number(result.latitude), Number(result.longitude))}

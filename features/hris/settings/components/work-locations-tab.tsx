@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { hrisWorkLocationApi } from "@/lib/api";
+import { useRole } from "@/lib/auth-context";
 import { toastError, toastSuccess } from "@/lib/hooks/use-toast";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
 import type { WorkLocation } from "@/lib/types";
@@ -25,6 +26,8 @@ const TIMEZONES = [
 ];
 
 export function WorkLocationsTab() {
+  const { hasRole } = useRole();
+  const canManage = hasRole("SUPER_ADMIN", "HR");
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<LocationPoint | null>(null);
@@ -90,7 +93,7 @@ export function WorkLocationsTab() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <p className="text-sm text-gray-500">Titik lokasi kerja yang valid untuk clock-in berbasis GPS</p>
-        <Button size="sm" variant="primary" icon={<Plus size={13} />}
+        <Button size="sm" variant="primary" icon={<Plus size={13} />} disabled={!canManage}
           className="bg-teal-700 hover:bg-teal-600 border-teal-700"
           onClick={() => { setSelectedPoint(null); setShowAdd(true); }}>Tambah Lokasi</Button>
       </div>
@@ -129,7 +132,7 @@ export function WorkLocationsTab() {
                 <td className="py-2.5">
                   <select
                     value={loc.timezone_name}
-                    disabled={timezoneMut.isPending}
+                    disabled={!canManage || timezoneMut.isPending}
                     onChange={(e) => timezoneMut.mutate({ id: loc.id, timezone_name: e.target.value })}
                     className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600"
                     aria-label={`Zona waktu ${loc.name}`}

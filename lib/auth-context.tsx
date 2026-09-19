@@ -4,6 +4,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from "react";
 import { authApi } from "./api";
+import { disableBrowserPush } from "./browser-push";
 import type { AppMenuPermission, RoleName, User } from "./types";
 
 interface AuthState {
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     ++sessionRequest.current;
+    try { await disableBrowserPush(); } catch { /* Continue logout even if push is unavailable. */ }
     try {
       await authApi.logout();
     } catch {

@@ -13,13 +13,15 @@ import { HolidayCalendarTab } from "./components/holiday-calendar-tab";
 import { LeaveTypesTab } from "./components/leave-types-tab";
 import { SalaryComponentsTab } from "./components/salary-components-tab";
 import { WorkGroupsTab } from "./components/work-groups-tab";
+import { WorkSchedulesTab } from "./components/work-schedules-tab";
 import { WorkLocationsTab } from "./components/work-locations-tab";
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 
-type TabKey = "locations" | "leave-types" | "salary" | "departments" | "grades" | "work-groups" | "holidays";
+type TabKey = "schedules" | "locations" | "leave-types" | "salary" | "departments" | "grades" | "work-groups" | "holidays";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
+  { key: "schedules", label: "Jadwal Kerja", icon: CalendarDays },
   { key: "locations",    label: "Lokasi Kerja",     icon: MapPin         },
   { key: "leave-types",  label: "Tipe Cuti",        icon: CalendarDays   },
   { key: "salary",       label: "Komponen Gaji",    icon: DollarSign     },
@@ -62,7 +64,7 @@ export default function HrisSettingsPage() {
       <div className="flex gap-4">
         {/* Sidebar tabs */}
         <div className="w-44 shrink-0 space-y-1">
-          {TABS.map(tab => {
+          {TABS.filter(tab => tab.key !== "schedules" || hasRole("SUPER_ADMIN", "HR")).map(tab => {
             const Icon = tab.icon;
             return (
               <button key={tab.key} onClick={() => setActiveTab(tab.key)}
@@ -86,6 +88,7 @@ export default function HrisSettingsPage() {
             <h2 className="text-sm font-semibold text-gray-800">{activeTabDef.label}</h2>
           </div>
           <div className="p-4">
+            {activeTab === "schedules" && hasRole("SUPER_ADMIN", "HR") && <WorkSchedulesTab />}
             {activeTab === "locations"   && <WorkLocationsTab />}
             {activeTab === "leave-types" && <LeaveTypesTab />}
             {activeTab === "salary"      && <SalaryComponentsTab canManage={canManageSalary} />}

@@ -12,6 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { ClockInModal } from "./components/clock-in-modal";
 import { ManualModal } from "./components/manual-attendance-modal";
+import { ClarificationPanel } from "./components/clarification-panel";
+import { clarificationLabels } from "@/lib/api/scheduling";
 import { OvertimeApprovalPanel } from "./components/overtime-approval-panel";
 import { hrisAttendanceApi, hrisEmployeesApi, hrisWorkGroupsApi } from "@/lib/api";
 import { useRole } from "@/lib/auth-context";
@@ -30,9 +32,9 @@ const MONTHS = [
   "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
-function fmt12H(iso: string | null): string {
+function fmt12H(iso: string | null, zone?: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: zone });
 }
 
 function fmtHours(h: number | null | undefined): string {
@@ -66,14 +68,15 @@ function locationChip(rec: AttendanceRecord) {
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 export default function AttendancePage() {
   const qc = useQueryClient();
-  const { isHR, isMD } = useRole();
+  const { isHR, isMD, hasRole } = useRole();
+  const canReviewClarifications = hasRole("SUPER_ADMIN", "HR");
   const canManageAttendance = isHR || isMD;
   const now = new Date();
   const [year,  setYear]  = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [search, setSearch]           = useState("");
   const [workGroupId, setWorkGroupId] = useState<number | "">("");
-  const [tab, setTab]     = useState<"list" | "summary" | "overtime">("list");
+  const [tab, setTab]     = useState<"list" | "summary" | "overtime" | "clarifications">("list");
   const [exporting, setExporting] = useState(false);
 
   const [showClockIn,  setShowClockIn]  = useState(false);
@@ -267,7 +270,8 @@ export default function AttendancePage() {
               { value: "list",     label: "Detail" },
               { value: "summary",  label: "Ringkasan" },
               { value: "overtime", label: "Lembur Diajukan" },
-            ] as const).filter(t => t.value !== "overtime" || canManageAttendance).map(t => (
+              { value: "clarifications", label: "Klarifikasi Absensi" },
+            ] as const).filter(t => (t.value !== "overtime" || canManageAttendance) && (t.value !== "clarifications" || canReviewClarifications)).map(t => (
               <button key={t.value} onClick={() => setTab(t.value)}
                 className={cn(
                   "px-3 py-1 rounded-md text-xs font-medium transition-colors",
@@ -358,8 +362,8 @@ export default function AttendancePage() {
                                   <p className="text-gray-900 font-medium text-xs">{emp?.full_name ?? `#${rec.employee_id}`}</p>
                                   <p className="text-gray-400 text-[11px]">{emp?.employee_no}</p>
                                 </td>
-                                <td className="px-4 py-3 text-gray-700 font-mono text-xs">{fmt12H(rec.clock_in)}</td>
-                                <td className="px-4 py-3 text-gray-700 font-mono text-xs">{fmt12H(rec.clock_out)}</td>
+                                <td className="px-4 py-3 text-gray-700 font-mono text-xs">{fmt12H(rec.clock_in, rec.schedule_snapshot?.timezone)}</td>
+                                <td className="px-4 py-3 text-gray-700 font-mono text-xs">{fmt12H(rec.clock_out, rec.schedule_snapshot?.timezone)}<div className="text-xs text-amber-700">{rec.clarification_status && clarificationLabels[rec.clarification_status]}{(rec.beyond_grace_minutes ?? 0) > 0 && ` Terlambat ${rec.late_minutes} menit`}</div></td>
                                 <td className="px-4 py-3 text-gray-700 text-xs">{fmtHours(rec.hours_regular)}</td>
                                 <td className="px-4 py-3 text-xs">
                                   {totalOT > 0
@@ -481,12 +485,12 @@ export default function AttendancePage() {
                               <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-600">
                                 <span className="flex items-center gap-1">
                                   <LogIn size={11} className="text-teal-500" />
-                                  {fmt12H(rec.clock_in)}
+                                  {fmt12H(rec.clock_in, rec.schedule_snapshot?.timezone)}
                                 </span>
                                 <span className="text-gray-300">→</span>
                                 <span className="flex items-center gap-1">
                                   <Clock size={11} className="text-gray-400" />
-                                  {fmt12H(rec.clock_out)}
+                                  {fmt12H(rec.clock_out, rec.schedule_snapshot?.timezone)}
                                 </span>
                                 {rec.hours_regular != null && (
                                   <span className="ml-auto text-[10px] font-medium text-gray-700">
@@ -607,6 +611,7 @@ export default function AttendancePage() {
 
       {/* TAB: Lembur Diajukan */}
       {canManageAttendance && tab === "overtime" && <OvertimeApprovalPanel />}
+      {canReviewClarifications && tab === "clarifications" && <ClarificationPanel />}
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
       {canManageAttendance && <ClockInModal

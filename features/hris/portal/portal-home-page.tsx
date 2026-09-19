@@ -1,4 +1,5 @@
 ﻿"use client";
+import { SchedulePanel } from "./schedule-panel";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -105,9 +106,9 @@ const MONTH_NAMES = [
   "Juli","Agustus","September","Oktober","November","Desember",
 ];
 
-function formatTime(iso: string | null | undefined) {
+function formatTime(iso: string | null | undefined, zone?: string) {
   if (!iso) return "–";
-  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: zone });
 }
 
 function formatCurrency(n: number) {
@@ -170,6 +171,7 @@ export default function HrisMePage() {
   } = useQuery({
     queryKey: ["hris-me-attendance", today.getFullYear(), today.getMonth() + 1],
     queryFn: () => hrisMeApi.getAttendance(today.getFullYear(), today.getMonth() + 1).then((r) => r.data),
+    refetchInterval: 30000,
     enabled: canAttendance,
   });
 
@@ -210,6 +212,7 @@ export default function HrisMePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+      <SchedulePanel />
       {/* PWA Install Banner */}
       {showInstallBanner && (
         <div className="flex items-center gap-3 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3">
@@ -279,8 +282,8 @@ export default function HrisMePage() {
                 </p>
                 {todayRecord?.clock_in && (
                   <p className="text-xs text-gray-500">
-                    Masuk: {formatTime(todayRecord.clock_in)}
-                    {todayRecord.clock_out && ` · Keluar: ${formatTime(todayRecord.clock_out)}`}
+                    Masuk: {formatTime(todayRecord.clock_in, todayRecord.schedule_snapshot?.timezone)}
+                    {todayRecord.clock_out && ` · Keluar: ${formatTime(todayRecord.clock_out, todayRecord.schedule_snapshot?.timezone)}`}
                   </p>
                 )}
                 {todayRecord?.latitude != null && (
