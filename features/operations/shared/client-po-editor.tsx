@@ -14,6 +14,9 @@ import { DetailValue } from "./operational-workspace-parts";
 
 
 export const CLIENT_PO_TYPE = "client_purchase_order";
+export const COMMERCIAL_TYPES = [CLIENT_PO_TYPE, "client_contract", "client_quotation", "contract_award"];
+export const isCommercialType = (type?: string) => !!type && COMMERCIAL_TYPES.includes(type);
+export interface PendingCommercialFile { file: File; doc_type: string }
 
 export interface ClientPOLineEditor {
   sequence: number;
@@ -25,6 +28,9 @@ export interface ClientPOLineEditor {
   uom: string;
   unit_price: string;
   technical_specs: string;
+  area?: string;
+  item_kind?: string;
+  source_specs?: Record<string, unknown>;
 }
 
 export interface ClientPOPaymentEditor {
@@ -58,6 +64,9 @@ export function clientPOEditorFromDetail(detail: ClientPODetail): ClientPOEditor
       uom: item.uom,
       unit_price: String(item.unit_price),
       technical_specs: String(item.technical_specs?.notes ?? ""),
+      area: String(item.technical_specs?.area ?? ""),
+      item_kind: String(item.technical_specs?.item_kind ?? "goods"),
+      source_specs: item.technical_specs,
     })),
     paymentTerms: detail.payment_terms.map(term => ({
       sequence: term.sequence,
@@ -93,7 +102,7 @@ export function clientPOToInput(
       uom: item.uom.trim(),
       unit_price: unitPrice,
       line_total: Math.round(quantity * unitPrice * 100) / 100,
-      technical_specs: item.technical_specs.trim() ? { notes: item.technical_specs.trim() } : {},
+      technical_specs: { ...item.source_specs, notes: item.technical_specs.trim(), area: item.area ?? "", item_kind: item.item_kind ?? "goods" },
     };
   });
 
@@ -101,7 +110,7 @@ export function clientPOToInput(
   let allocatedTax = 0;
   const paymentTerms = editor.paymentTerms.map((term, index) => {
     const percentage = Number(term.percentage || 0);
-    const isLast = index === editor.paymentTerms.length - 1;
+    const isLast = index === editor.paymentTerms.length - 1 && Math.abs(editor.paymentTerms.reduce((sum, item) => sum + Number(item.percentage || 0), 0) - 100) < 0.001;
     const dpp = isLast ? dppAmount - allocatedDpp : roundedShare(dppAmount, percentage);
     const tax = isLast ? taxAmount - allocatedTax : roundedShare(taxAmount, percentage);
     allocatedDpp += dpp;
@@ -381,7 +390,7 @@ export function ClientPODetailPanel({
   currency: string;
   onOpenAttachment: (attachment: OperationalAttachment) => void;
 }) {
-  if (!detail) return <p className="text-[12px] text-[#94A3B8]">Loading Client PO details...</p>;
+  if (!detail) return <p className="text-[12px] text-[#94A3B8]">Memuat rincian dokumen...</p>;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border border-[#E7E5DF] rounded-lg p-4">
@@ -390,15 +399,32 @@ export function ClientPODetailPanel({
         <DetailValue label="Grand Total">{money(Number(details.grand_total ?? 0), currency)}</DetailValue>
         <DetailValue label="Delivery Term">{String(details.delivery_term ?? "-")}</DetailValue>
         <DetailValue label="Ship-to">{String(details.ship_to_location ?? "-")}</DetailValue>
-        <DetailValue label="Warranty">{details.warranty_months ? `${String(details.warranty_months)} months` : "-"}</DetailValue>
+        <DetailValue label="Warranty">{details.warranty_months !== undefined && details.warranty_months !== null && details.warranty_months !== "" ? `${String(details.warranty_months)} months` : "-"}</DetailValue>
         <DetailValue label="Quotation">{String(details.quotation_reference ?? "-")}</DetailValue>
         <DetailValue label="Scope">{String(details.scope_code ?? "-")}</DetailValue>
+        <DetailValue label="Potongan PPh">{money(Number(details.withholding_amount ?? 0), currency)}</DetailValue>
+        <DetailValue label="Setelah potongan">{money(Number(details.net_amount ?? Number(details.grand_total ?? 0) - Number(details.withholding_amount ?? 0)), currency)}</DetailValue>
+        <DetailValue label="Dasar potongan">{String(details.withholding_basis || "-")}</DetailValue>
+        <DetailValue label="Perhitungan nilai">{details.value_role === "supporting" ? "Dokumen pendukung" : "Acuan nilai (PO / kontrak disetujui)"}</DetailValue>
+        <DetailValue label="Revisi">{String(details.revision_number || "-")}</DetailValue>
+        <DetailValue label="Alasan revisi">{String(details.revision_reason || "-")}</DetailValue>
+        <DetailValue label="Durasi pekerjaan">{String(details.duration_text || "-")}</DetailValue>
+        <DetailValue label="Dihitung sejak">{{ po_received: "PO diterima", dp_received: "DP diterima", kickoff: "Kickoff", other: "Lihat catatan" }[String(details.duration_trigger) as "po_received" | "dp_received" | "kickoff" | "other"] || "-"}</DetailValue>
+        <DetailValue label="Rencana mulai">{String(details.planned_start_date || "-")}</DetailValue>
+        <DetailValue label="Target selesai">{String(details.target_completion_date || "-")}</DetailValue>
+        <DetailValue label="Mulai aktual">{String(details.actual_start_date || "-")}</DetailValue>
+        <DetailValue label="Selesai aktual">{String(details.actual_completion_date || "-")}</DetailValue>
+        <DetailValue label="Awal garansi">{String(details.warranty_start_event || "-")} · {String(details.warranty_start_date || "Belum terjadi")}</DetailValue>
+        <DetailValue label="Kontak pengiriman">{String(details.delivery_contact || "-")}</DetailValue>
+        <DetailValue label="Kontak penagihan">{String(details.billing_contact || "-")}</DetailValue>
+        <DetailValue label="Alamat penagihan">{String(details.billing_address || "-")}</DetailValue>
       </div>
+      {!!details.excluded_scope && <div className="rounded-lg border p-3 text-sm"><p className="font-semibold">Lingkup yang tidak dipesan</p><p className="whitespace-pre-wrap mt-1">{String(details.excluded_scope)}</p></div>}
       <div className="overflow-x-auto border border-[#E7E5DF] rounded-lg">
         <table className="w-full min-w-[720px] text-[11px]">
           <thead className="bg-[#F8FAF9] text-[#94A3B8] uppercase tracking-[0.08em]"><tr><th className="px-3 py-2 text-left">Item</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Unit Price</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
           <tbody className="divide-y divide-[#F0EFEA]">
-            {detail.line_items.map(item => <tr key={item.id}><td className="px-3 py-2">{item.item_no}</td><td className="px-3 py-2">{item.description}</td><td className="px-3 py-2 text-right">{item.quantity} {item.uom}</td><td className="px-3 py-2 text-right font-mono">{money(item.unit_price, currency)}</td><td className="px-3 py-2 text-right font-mono">{money(item.line_total, currency)}</td></tr>)}
+            {detail.line_items.map(item => <tr key={item.id}><td className="px-3 py-2">{item.item_no}</td><td className="px-3 py-2"><p>{item.description}</p>{[item.manufacturer, item.model].filter(Boolean).length > 0 && <p className="text-xs text-slate-500">{[item.manufacturer, item.model].filter(Boolean).join(" ? ")}</p>}{!!item.technical_specs?.area && <p className="text-xs text-teal-700">Area / tag: {String(item.technical_specs.area)}</p>}{!!item.technical_specs?.notes && <p className="text-xs text-slate-500 whitespace-pre-wrap mt-1">{String(item.technical_specs.notes)}</p>}</td><td className="px-3 py-2 text-right">{item.quantity} {item.uom}</td><td className="px-3 py-2 text-right font-mono">{money(item.unit_price, currency)}</td><td className="px-3 py-2 text-right font-mono">{money(item.line_total, currency)}</td></tr>)}
           </tbody>
         </table>
       </div>
@@ -408,7 +434,7 @@ export function ClientPODetailPanel({
       <div className="flex flex-wrap gap-2">
         {detail.attachments.map(attachment => (
           <button key={attachment.id} type="button" onClick={() => onOpenAttachment(attachment)} className="inline-flex items-center gap-2 px-3 py-2 border border-[#E7E5DF] rounded-lg text-[11px] text-[#33445A] hover:bg-[#F8FAF9]">
-            <FileText size={13} /> {attachment.original_filename} <ExternalLink size={12} />
+            <FileText size={13} /> {attachment.doc_type.replaceAll("_", " ")} ? {attachment.original_filename} <ExternalLink size={12} />
           </button>
         ))}
         {!detail.attachments.length && <p className="text-[11px] text-[#94A3B8]">No source document available</p>}

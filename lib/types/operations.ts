@@ -229,6 +229,27 @@ export interface OperationalRecord {
   workflow_history: OperationalWorkflowEvent[];
   created_at: string;
   updated_at: string;
+  workflow?: OperationalWorkflow;
+}
+
+export interface OperationalAssignee {
+  id: number;
+  name: string;
+  role: string;
+  can_approve: boolean;
+}
+
+export interface OperationalWorkflow {
+  owner_name: string;
+  next_user_id: number | null;
+  next_user_name: string | null;
+  next_user_role: string | null;
+  next_action: string | null;
+  instruction: string;
+  assignment_missing: boolean;
+  candidates: Array<{ id: number; name: string; role: string }>;
+  available_actions: string[];
+  steps: Array<{ label: string; user_id: number | null; user_name: string | null }>;
 }
 
 export interface OperationalRecordInput {
@@ -255,4 +276,5 @@ export interface OperationalSummary {
   due_soon: number;
   average_progress: number;
   by_status: Record<string, number>;
+  amounts_by_currency?: Record<string, number>;
 }

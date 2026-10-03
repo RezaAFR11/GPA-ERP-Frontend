@@ -32,8 +32,8 @@ export function RowActionMenu({
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const canManage = module.can_approve || record.created_by === currentUserId || record.owner_id === currentUserId;
-  const actions = WORKFLOW_ACTIONS[record.status].filter(
-    action => !APPROVER_ACTIONS.has(action) || module.can_approve,
+  const actions = record.workflow?.available_actions ?? WORKFLOW_ACTIONS[record.status].filter(
+    action => APPROVER_ACTIONS.has(action) ? module.can_approve : canManage,
   );
   const deletable = canManage && ["draft", "rejected", "cancelled"].includes(record.status);
 
@@ -50,7 +50,7 @@ export function RowActionMenu({
       </button>
       <FloatingActionMenu open={open} anchorRef={anchorRef} onClose={() => setOpen(false)} widthClass="w-52">
         <MenuButton icon={Eye} label="View Details" onClick={() => { setOpen(false); onView(); }} />
-        {canManage && record.status !== "closed" && (
+        {canManage && record.status !== "closed" && !record.details.superseded_by_id && (
           <MenuButton icon={Pencil} label={record.status === "draft" || record.status === "rejected" ? "Edit" : "Update Progress"} onClick={() => { setOpen(false); onEdit(); }} />
         )}
         {actions.map(action => {

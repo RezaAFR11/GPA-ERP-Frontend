@@ -16,6 +16,7 @@ import type { Expense, OperationalRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import { sortTableRows, useTableSort } from "@/lib/table-sort";
+import { nextProcessor } from "@/features/operations/shared/workflow-guide";
 
 type ExpenseQueueSortKey = "id" | "description" | "cost_code" | "amount" | "created_at" | "status";
 type OperationalQueueSortKey = "module" | "reference_no" | "title" | "amount" | "status";
@@ -128,14 +129,10 @@ function ActionGroup({ title, icon: Icon, color, expenses, action, onDone, onVie
 
 function OperationalActionGroup({
   records,
-  onApprove,
   onOpen,
-  pendingId,
 }: {
   records: OperationalRecord[];
-  onApprove: (record: OperationalRecord) => void;
   onOpen: (record: OperationalRecord) => void;
-  pendingId: number | null;
 }) {
   const { sortKey, sortDirection, toggleSort } = useTableSort<OperationalQueueSortKey>("reference_no", "asc");
   const sortedRecords = useMemo(() => sortTableRows(records, sortKey, sortDirection, {
@@ -152,7 +149,7 @@ function OperationalActionGroup({
         <div className="w-6 h-6 rounded-md flex items-center justify-center bg-[#0A3A63]">
           <BriefcaseBusiness size={13} className="text-white" />
         </div>
-        <h3 className="text-sm font-semibold text-gray-800">Operational Approvals</h3>
+        <h3 className="text-sm font-semibold text-gray-800">Pekerjaan operasional menunggu tindakan Anda</h3>
         <span className="ml-1 text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 num font-semibold">{records.length}</span>
       </div>
       <Card padding={false}>
@@ -173,14 +170,14 @@ function OperationalActionGroup({
                 <tr key={`${record.module}-${record.id}`}>
                   <td className="td text-[11px] font-semibold capitalize">{record.module.replaceAll("_", " ")}</td>
                   <td className="td text-[11px] font-mono">{record.reference_no}</td>
-                  <td className="td text-[12px] font-medium max-w-[260px] truncate">{record.title}</td>
+                  <td className="td text-[12px] font-medium max-w-[300px]"><p>{record.title}</p><p className="text-xs text-teal-700 mt-1">{record.workflow?.instruction}</p><p className="text-[11px] text-slate-500">{nextProcessor(record)}</p></td>
                   <td className="td text-right font-mono text-[11px] font-semibold">{formatCurrency(record.amount)}</td>
                   <td className="td">
                     <span className="text-[10px] font-semibold capitalize text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-1">{record.status.replaceAll("_", " ")}</span>
                   </td>
                   <td className="td">
                     <div className="flex gap-1.5">
-                      <Button size="xs" variant="primary" loading={pendingId === record.id} icon={<CheckCircle2 size={11} />} onClick={() => onApprove(record)}>Approve</Button>
+                      <Button size="xs" variant="primary" icon={<Eye size={11} />} onClick={() => onOpen(record)}>Buka &amp; proses</Button>
                       <button className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100" onClick={() => onOpen(record)} aria-label="Open record"><Eye size={13} /></button>
                     </div>
                   </td>
@@ -199,7 +196,6 @@ export default function ActionCenterPage() {
   const { user } = useAuth();
   const { role } = useRole();
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
-  const [operationalPendingId, setOperationalPendingId] = useState<number | null>(null);
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["expenses", "action-center"],
@@ -220,23 +216,6 @@ export default function ActionCenterPage() {
   const toSubmit = queues.submit;
 
   const total = queues.total + operationalRecords.length;
-
-  async function approveOperational(record: OperationalRecord) {
-    setOperationalPendingId(record.id);
-    try {
-      await operationsApi.transition(record.module, record.id, "approve");
-      toastSuccess("Record approved", `${record.reference_no} approved successfully`);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["operational-action-queue"] }),
-        qc.invalidateQueries({ queryKey: ["operational-records", record.module] }),
-        qc.invalidateQueries({ queryKey: ["operational-summary", record.module] }),
-      ]);
-    } catch (error) {
-      toastError("Approval failed", getErrorMessage(error));
-    } finally {
-      setOperationalPendingId(null);
-    }
-  }
 
   function openOperational(record: OperationalRecord) {
     const paths: Record<string, string> = {
@@ -290,9 +269,7 @@ export default function ActionCenterPage() {
         <div className="space-y-6">
           <OperationalActionGroup
             records={operationalRecords}
-            onApprove={approveOperational}
             onOpen={openOperational}
-            pendingId={operationalPendingId}
           />
           <ActionGroup
             title="Receipt Review (GA)"

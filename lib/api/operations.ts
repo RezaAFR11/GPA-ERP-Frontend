@@ -12,6 +12,7 @@ import type {
   ClientPODetail,
   OperationalAttachment,
   OperationalModule,
+  OperationalAssignee,
   OperationalRecord,
   OperationalRecordInput,
   OperationalSummary,
@@ -66,6 +67,7 @@ export const inventoryApi = {
 export const operationsApi = {
   modules: () => api.get<OperationalModule[]>("/operations/modules"),
   actionQueue: () => api.get<OperationalRecord[]>("/operations/action-queue"),
+  assignees: (module: string) => api.get<OperationalAssignee[]>(`/operations/${module}/assignees`),
   list: (
     module: string,
     params?: {
@@ -89,6 +91,8 @@ export const operationsApi = {
     api.patch<OperationalRecord>(`/operations/${module}/${id}`, data),
   transition: (module: string, id: number, action: string, note?: string) =>
     api.post<OperationalRecord>(`/operations/${module}/${id}/transition`, { action, note }),
+  reassign: (module: string, id: number, data: { owner_id: number; reviewer_id: number; executor_id: number; closer_id: number; note: string }) =>
+    api.post<OperationalRecord>(`/operations/${module}/${id}/routing`, data),
   delete: (module: string, id: number) =>
     api.delete<MessageResponse>(`/operations/${module}/${id}`),
   audit: (module: string, id: number) =>

@@ -28,13 +28,14 @@ import {
   pct,
 } from "@/lib/utils";
 import { EditModal } from "./components/edit-project-modal";
+import { ProjectWorkspace } from "./components/project-workspace";
 import {
   DocumentsTab,
   ExpensesTab,
   RevenueTab,
 } from "./components/project-financial-tabs";
 
-const TABS = ["Overview", "Expenses", "Revenue", "Documents"] as const;
+const TABS = ["Overview", "Alur Kerja", "Expenses", "Revenue", "Documents"] as const;
 type Tab = typeof TABS[number];
 
 export default function ProjectDetailPage() {
@@ -208,13 +209,13 @@ export default function ProjectDetailPage() {
       </Card>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-xl p-1 w-fit">
+      <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-xl p-1 w-fit max-w-full overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-4 py-2 text-xs font-semibold rounded-lg transition-all",
+              "px-4 py-2 text-xs font-semibold rounded-lg transition-all whitespace-nowrap",
               tab === t
                 ? "bg-gray-900 text-white shadow-sm"
                 : "text-gray-500 hover:text-gray-800"
@@ -270,6 +271,7 @@ export default function ProjectDetailPage() {
           </Card>
         </div>
       )}
+      {tab === "Alur Kerja" && <ProjectWorkspace projectId={projectId} />}
       {tab === "Expenses" && <ExpensesTab projectId={projectId} currency={project.currency} />}
       {tab === "Revenue"  && <RevenueTab  projectId={projectId} currency={project.currency} />}
       {tab === "Documents" && <DocumentsTab projectId={projectId} />}
