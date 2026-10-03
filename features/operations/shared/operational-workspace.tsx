@@ -18,7 +18,6 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { SortableTableHeader } from "@/components/ui/sortable-table-header";
 import { useTableSort } from "@/lib/table-sort";
 import {
   ACTION_META,
@@ -39,7 +38,6 @@ import {
 import {
   DetailValue,
   FilterSelect,
-  RowActionMenu,
   SummaryTile,
 } from "./operational-workspace-parts";
 import {
@@ -54,14 +52,11 @@ import {
 
 import { CommercialInput, COMMERCIAL_STEPS, commercialWarnings } from "./commercial-input";
 import { WorkflowGuide, WorkflowRouting, nextProcessor } from "./workflow-guide";
+import { OperationalRecordList, type OperationalSortKey } from "./operational-record-list";
 
 interface OperationalWorkspaceProps {
   moduleKey: string;
 }
-
-type OperationalSortKey = "id" | "reference_no" | "record_type" | "title" | "project_partner" | "amount" | "progress" | "due_date" | "status";
-
-
 
 export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
   const queryClient = useQueryClient();
@@ -424,7 +419,7 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
 
       <Card padding={false}>
         {recordsQuery.isLoading ? (
-          <TableSkeleton rows={6} cols={8} />
+          <TableSkeleton rows={6} cols={6} />
         ) : recordsQuery.isError ? (
           <div className="p-8 text-center text-sm text-red-600">{getErrorMessage(recordsQuery.error)}</div>
         ) : records.length === 0 ? (
@@ -434,63 +429,19 @@ export function OperationalWorkspace({ moduleKey }: OperationalWorkspaceProps) {
             <p className="text-xs text-[#94A3B8] mt-1">Create the first {presentation.singular.toLowerCase()} or adjust the filters.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] table-fixed">
-              <thead>
-                <tr className="border-b border-[#E7E5DF]">
-                  <SortableTableHeader label="Reference" column="reference_no" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[140px]" />
-                  <SortableTableHeader label="Type" column="record_type" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[160px]" />
-                  <SortableTableHeader label="Title" column="title" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[250px]" />
-                  <SortableTableHeader label="Project / Partner" column="project_partner" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[180px]" />
-                  <SortableTableHeader label="Value" column="amount" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} align="right" className="w-[135px]" />
-                  <SortableTableHeader label="Progress" column="progress" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[120px]" />
-                  <SortableTableHeader label="Due" column="due_date" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[110px]" />
-                  <SortableTableHeader label="Status" column="status" sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} className="w-[110px]" />
-                  <th className="th w-[64px] text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F0EFEA]">
-                {records.map(record => (
-                  <tr key={record.id} className="hover:bg-[#F8FAF9] transition-colors">
-                    <td className="td font-mono text-[11px] font-semibold text-[#33445A] truncate">{record.reference_no}</td>
-                    <td className="td text-[11px] text-[#5E7186] truncate">{module.record_types[record.record_type] ?? record.record_type}</td>
-                    <td className="td">
-                      <button type="button" onClick={() => setViewing(record)} className="text-[12.5px] font-semibold text-[#0C2138] text-left hover:underline">{record.title}</button>
-                      <p className="text-[11px] text-teal-700 mt-1 whitespace-normal">→ {nextProcessor(record)}</p>
-                      <p className="text-[10px] text-slate-500 whitespace-normal">{record.workflow?.instruction}</p>
-                      <p className={`text-[10px] capitalize mt-0.5 ${PRIORITY_STYLE[record.priority]}`}>{record.priority} priority</p>
-                    </td>
-                    <td className="td">
-                      <p className="text-[11px] text-[#33445A] truncate">{record.project_id ? projectMap.get(record.project_id) ?? `Project #${record.project_id}` : "No project"}</p>
-                      <p className="text-[10px] text-[#94A3B8] truncate mt-0.5">{record.partner_name || "-"}</p>
-                    </td>
-                    <td className="td text-right font-mono text-[11px] font-semibold text-[#0C2138]">{formatMoney(record.amount, record.currency)}</td>
-                    <td className="td">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 flex-1 rounded-full bg-[#EEF0F2] overflow-hidden">
-                          <div className="h-full bg-[#0D9488]" style={{ width: `${Math.min(100, Number(record.progress))}%` }} />
-                        </div>
-                        <span className="font-mono text-[10px] text-[#5E7186] w-8 text-right">{Number(record.progress).toFixed(0)}%</span>
-                      </div>
-                    </td>
-                    <td className="td text-[11px] text-[#5E7186]">{formatDate(record.due_date)}</td>
-                    <td className="td"><Badge dot className={STATUS_STYLE[record.status]}>{STATUS_LABEL[record.status]}</Badge></td>
-                    <td className="td text-center">
-                      <RowActionMenu
-                        record={record}
-                        module={module}
-                        currentUserId={user?.id ?? null}
-                        onView={() => setViewing(record)}
-                        onEdit={() => openEdit(record)}
-                        onTransition={action => { setTransition({ record, action }); setTransitionNote(""); }}
-                        onDelete={() => setDeleting(record)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <OperationalRecordList
+            records={records}
+            module={module}
+            projectMap={projectMap}
+            currentUserId={user?.id ?? null}
+            sortKey={sortKey}
+            sortDirection={sortDirection}
+            onSort={toggleSort}
+            onView={setViewing}
+            onEdit={openEdit}
+            onTransition={(record, action) => { setTransition({ record, action }); setTransitionNote(""); }}
+            onDelete={setDeleting}
+          />
         )}
       </Card>
 
